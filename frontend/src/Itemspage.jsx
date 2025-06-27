@@ -44,6 +44,7 @@ import {
   BsCheckCircle,
   BsHouse,
 } from "react-icons/bs"
+import MainNavbar from "./components/MainNavbar.jsx"
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -60,10 +61,18 @@ const ItemsPage = () => {
   const [priceRange, setPriceRange] = useState({ min: 0, max: 100000 })
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [categories, setCategories] = useState([])
+  const itemsPerPage = 12;
 
   const navigate = useNavigate()
+  const token = localStorage.getItem("token")
   const userRole = localStorage.getItem("role")
-  const itemsPerPage = 12
+
+  const handleLogout = () => {
+    localStorage.removeItem("token")
+    localStorage.removeItem("userId")
+    localStorage.removeItem("role")
+    navigate("/")
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -195,74 +204,7 @@ const ItemsPage = () => {
   return (
     <div style={{ backgroundColor: "#f8f9fa", minHeight: "100vh" }}>
       {/* Navigation Bar */}
-      <Navbar bg="white" variant="light" expand="lg" sticky="top" className="py-3 border-bottom shadow-sm">
-        <Container fluid>
-          <Navbar.Brand as={Link} to="/" className="fw-bold fs-3" style={{ color: "#EE4D2D" }}>
-            <BsShop className="me-2" />
-            Wawa Furniture
-          </Navbar.Brand>
-          <Navbar.Toggle aria-controls="basic-navbar-nav" />
-          <Navbar.Collapse id="basic-navbar-nav">
-            <Nav className="me-auto">
-              <Nav.Link as={Link} to="/" className="fw-medium">
-                <BsHouse className="me-1" />
-                Shop
-              </Nav.Link>
-              <Nav.Link as={Link} to="/cart" className="fw-medium">
-                <BsCart className="me-1" />
-                Cart
-              </Nav.Link>
-              <Nav.Link as={Link} to="/profile" className="fw-medium">
-                <BsPerson className="me-1" />
-                Profile
-              </Nav.Link>
-              <Nav.Link as={Link} to="/recommendation" className="fw-medium text-primary">
-                <BsRobot className="me-1" />
-                AI Picks For You!
-              </Nav.Link>
-              {userRole === "admin" && (
-                <Nav.Link as={Link} to="/admin" className="fw-medium">
-                  <BsListUl className="me-1" />
-                  Admin Panel
-                </Nav.Link>
-              )}
-              {userRole === "user" && (
-                <Nav.Link as={Link} to="/chat" className="fw-medium">
-                  <BsChatDots className="me-1" />
-                  Chat With Us!
-                </Nav.Link>
-              )}
-            </Nav>
-
-            <div className="flex-grow-1 mx-4" style={{ maxWidth: "500px" }}>
-              <InputGroup>
-                <InputGroup.Text>
-                  <BsSearch />
-                </InputGroup.Text>
-                <Form.Control
-                  type="search"
-                  placeholder="Search for furniture, decor, and more..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </InputGroup>
-            </div>
-
-            <Nav className="ms-auto">
-              <Nav.Link
-                onClick={() => {
-                  localStorage.clear()
-                  navigate("/")
-                }}
-                className="fw-medium text-danger"
-              >
-                <BsBoxArrowRight className="me-1" />
-                Logout
-              </Nav.Link>
-            </Nav>
-          </Navbar.Collapse>
-        </Container>
-      </Navbar>
+      <MainNavbar enableSearch searchValue={search} onSearchChange={(e) => setSearch(e.target.value)} />
 
       {/* Hero Section */}
       <div

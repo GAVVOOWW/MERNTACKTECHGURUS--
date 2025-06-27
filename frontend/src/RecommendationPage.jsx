@@ -86,40 +86,22 @@ const RecommendationPage = () => {
     const itemsPerPage = 12
 
     // Main function to handle AI-powered semantic search (Hybrid Approach)
-    const handleSearch = async () => {
-        if (!searchQuery.trim()) {
-            setSearchResults(null) // Clear search results to show initial recommendations
-            return
-        }
-
-        setLoading(true)
-        setError(null)
-
-        let apiQuery = searchQuery
-        let apiLimit = limit // Start with the dropdown's value
-
-        // 1. Check for a number in the conversational query (e.g., "show me 3 chairs")
-        const conversationalLimitMatch = searchQuery.match(/(?:give me|show me|find|get|only)\s*(\d+)/i)
-        if (conversationalLimitMatch) {
-            apiLimit = parseInt(conversationalLimitMatch[1], 10)
-            apiQuery = searchQuery.replace(conversationalLimitMatch[0], "").trim()
-        }
-
-        try {
-            const response = await axios.post(`${BACKEND_URL}/api/items/semantic-search`, {
-                query: apiQuery,
-                limit: apiLimit,
-            })
-            setSearchResults(response.data.ItemData || [])
-        } catch (err) {
-            setError("AI search failed. Please try again.")
-            console.error("Semantic search error:", err)
-            setSearchResults([])
-        } finally {
-            setLoading(false)
-            setCurrentPage(1) // Reset to first page on new search
-        }
+   // In your React component's handleSearch function
+const handleSearch = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+        // No more regex or parsing. Just send the raw query.
+        const response = await axios.post('YOUR_API_URL/semantic-search', {
+            query: searchQuery, 
+        });
+        setSearchResults(response.data.ItemData);
+    } catch (e) {
+        setError('Failed to get results.');
+    } finally {
+        setIsLoading(false);
     }
+};
 
     // Fetches the initial recommendations on page load
     useEffect(() => {

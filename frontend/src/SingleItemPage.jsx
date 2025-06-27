@@ -73,6 +73,13 @@ const SingleItemPage = () => {
   const token = localStorage.getItem("token")
   const userRole = localStorage.getItem("role")
 
+  const handleLogout = () => {
+    localStorage.removeItem("token")
+    localStorage.removeItem("userId")
+    localStorage.removeItem("role")
+    navigate("/")
+  }
+
   // Fetch single item by ID
   const getItemById = async (itemId) => {
     try {
@@ -390,14 +397,18 @@ const SingleItemPage = () => {
                 <BsHouse className="me-1" />
                 Shop
               </Nav.Link>
-              <Nav.Link as={Link} to="/cart" className="fw-medium">
-                <BsCart className="me-1" />
-                Cart
-              </Nav.Link>
-              <Nav.Link as={Link} to="/orders" className="fw-medium">
-                <BsClipboardCheck className="me-1" />
-                My Orders
-              </Nav.Link>
+              {token && (
+                <Nav.Link as={Link} to="/cart" className="fw-medium">
+                  <BsCart className="me-1" />
+                  Cart
+                </Nav.Link>
+              )}
+              {token && (
+                <Nav.Link as={Link} to="/orders" className="fw-medium">
+                  <BsClipboardCheck className="me-1" />
+                  My Orders
+                </Nav.Link>
+              )}
             </Nav>
             <Nav className="ms-auto">
               {userRole === "admin" && (
@@ -412,16 +423,16 @@ const SingleItemPage = () => {
                   Chat Seller
                 </Nav.Link>
               )}
-              <Nav.Link
-                onClick={() => {
-                  localStorage.clear()
-                  navigate("/")
-                }}
-                className="fw-medium text-danger"
-              >
-                <BsBoxArrowRight className="me-1" />
-                Logout
-              </Nav.Link>
+              {!token ? (
+                <Nav.Link as={Link} to="/login" className="fw-medium">
+                  Login
+                </Nav.Link>
+              ) : (
+                <Nav.Link onClick={handleLogout} className="fw-medium text-danger">
+                  <BsBoxArrowRight className="me-1" />
+                  Logout
+                </Nav.Link>
+              )}
             </Nav>
           </Navbar.Collapse>
         </Container>

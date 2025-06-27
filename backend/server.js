@@ -12,6 +12,7 @@ import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { calculateCustomPrice } from "./utils/priceCalculator.js";
 import { pipeline } from '@xenova/transformers';
+import { parseQueryWithGemini } from './utils/geminiParser.js';
 
 // Model Imports
 import User from "./models/user.model.js";
@@ -34,6 +35,9 @@ const server = createServer(app);
 
 dotenv.config({ path: './.env' });
 connectDB();
+
+const frontendURL = process.env.FRONTEND_URL;
+
 
 const io = new Server(server, {
     cors: {
@@ -93,9 +97,23 @@ cloudinary.config({
 // =================================================================
 // MIDDLEWARE
 // =================================================================
-app.use(cors());
-app.use(express.json()); // This replaces the need for bodyParser.json()
+
+
+
+
+const corsOptions = {
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    credentials: true,
+    // It can also be helpful to specify which headers are allowed
+    allowedHeaders: "Content-Type, Authorization", 
+  };
+
+// Applies the CORS rules to ALL incoming requests. Correct.
+app.use(cors(corsOptions)); 
+  app.use(express.json());
 // --- START OF CHAT API ROUTES ---
+
 
 // Get all chats for the logged-in admin
 app.get('/api/chats', authenticateToken, authorizeRoles("admin"), async (req, res) => {
@@ -115,77 +133,85 @@ app.get('/api/chats', authenticateToken, authorizeRoles("admin"), async (req, re
     }
 });
 
-// Semantic search model
+
+// This part for the BGE model REMAINS. DO NOT DELETE IT.
 let extractor;
 pipeline('feature-extraction', 'Xenova/bge-large-en-v1.5').then(model => {
     extractor = model;
-    console.log('Semantic search model loaded and ready.');
+    console.log('Semantic search model (bge-large-en-v1.5) loaded and ready.');
 });
 
+// ... your other routes
 
-// =======================================================
-// === THIS IS THE ENDPOINT YOU NEED TO ADD ===
-// =======================================================
+// --- MODIFIED: The complete, final search endpoint ---
 app.post('/api/items/semantic-search', async (req, res) => {
     try {
-        // === CHANGE 1: Read 'limit' from the request body ===
-        const { query, budget, limit } = req.body;
-
+        const { query } = req.body;
         if (!query) {
-            return res.status(400).json({ success: false, message: 'Search query is required.' });
+            return res.status(400).json({ success: false, message: 'Query is required.' });
         }
+        
+        // 1. PARSE WITH GEMINI FIRST
+        const command = await parseQueryWithGemini(query);
+        console.log("[Gemini Parsed Command]:", command);
+        
+        const { semanticQuery, limit, sortBy, sortOrder, filters } = command;
 
         if (!extractor) {
-            return res.status(503).json({ success: false, message: 'Search model is not ready yet. Please try again.' });
+            return res.status(503).json({ success: false, message: 'Embedding model not ready.' });
         }
 
-        // === CHANGE 2: Set a default and ensure the limit is a number ===
-        // Default to 10 items if no limit is provided.
-        // Use Math.min to cap the limit at 50, preventing abuse.
-        const numResults = Math.min(parseInt(limit, 10) || 10, 50);
+        // 2. BUILD THE DATABASE QUERY using the structured command from Gemini
+        const numResults = Math.min(parseInt(limit, 10) || 12, 50);
+        const matchStage = {};
+        if (filters) {
+            if (filters.maxPrice) matchStage.price = { ...matchStage.price, $lte: filters.maxPrice };
+            if (filters.minPrice) matchStage.price = { ...matchStage.price, $gte: filters.minPrice };
+            if (filters.maxLength) matchStage.length = { $lte: filters.maxLength };
+            if (filters.maxWidth) matchStage.width = { $lte: filters.maxWidth };
+            if (filters.maxHeight) matchStage.height = { $lte: filters.maxHeight };
+            if (filters.is_bestseller !== undefined) matchStage.is_bestseller = filters.is_bestseller;
+            if (filters.is_customizable !== undefined) matchStage.is_customizable = filters.is_customizable;
+            if (filters.isPackage !== undefined) matchStage.isPackage = filters.isPackage;
+            // Note: Material/Style filters are best handled by vector search but could be added here if needed.
+        }
 
-        const queryEmbedding = await extractor(query, {
-            pooling: 'mean',
-            normalize: true,
-        });
+        const pipeline = [];
+        if (Object.keys(matchStage).length > 0) {
+            pipeline.push({ $match: matchStage });
+        }
 
-        const pipeline = [
-            {
-                $vectorSearch: {
-                    index: 'vector_index',
-                    path: 'embedding',
-                    queryVector: Array.from(queryEmbedding.data),
-                    numCandidates: 100,
-                    // === CHANGE 3: Use the variable 'numResults' instead of a hardcoded number ===
-                    limit: numResults
-                }
+        // 3. GENERATE EMBEDDING with your BGE model
+        const queryEmbedding = await extractor(semanticQuery, { pooling: 'mean', normalize: true });
+
+        pipeline.push({
+            $vectorSearch: {
+                index: 'vector_index',
+                path: 'embedding',
+                queryVector: Array.from(queryEmbedding.data),
+                numCandidates: 200,
+                limit: numResults,
             }
-        ];
-
-        if (budget && !isNaN(Number(budget))) {
-            pipeline.push({
-                $match: {
-                    price: { $lte: Number(budget) }
-                }
-            });
+        });
+        
+        // 4. ADD SORTING if specified by Gemini
+        if (sortBy && sortOrder) {
+            const sortStage = { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } };
+            pipeline.push(sortStage);
         }
 
         pipeline.push({
-            $project: {
-                _id: 1,
-                name: 1,
-                description: 1,
-                price: 1,
-                imageUrl: 1,
-                score: { $meta: "vectorSearchScore" }
+             $project: {
+                _id: 1, name: 1, description: 1, price: 1, imageUrl: 1, sales: 1,
+                score: { $meta: "vectorSearchScore" } 
             }
         });
 
         const results = await Item.aggregate(pipeline);
-        res.json({ success: true, ItemData: results });
+        res.json({ success: true, ItemData: results, parsedCommand: command });
 
     } catch (err) {
-        console.error('Error in semantic search:', err.message);
+        console.error('Error in semantic search route:', err);
         res.status(500).json({ success: false, message: 'Server error during search.' });
     }
 });
@@ -480,7 +506,7 @@ app.put("/api/orders/:id/cancel", authenticateToken, async (req, res) => {
 });
 
 // Update order status when user returns from payment
-app.get("/api/order/:id/status", authenticateToken, async (req, res) => {
+app.get("/api/orders/:id/status", authenticateToken, async (req, res) => {
     try {
         const order = await Order.findById(req.params.id)
             .populate('user', 'name email')
@@ -1326,7 +1352,7 @@ app.get('/api/cart/:userId/items', authenticateToken, async (req, res) => {
     }
 });
 // Adding item to Cart
-app.post('/api/cart/:userId/add', async (req, res) => {
+app.post('/api/cart/:userId/add',authenticateToken, async (req, res) => {
     const { userId } = req.params;
     const { itemId, quantity = 1, customH, customW, customL, legsFrameMaterial, tabletopMaterial } = req.body;
 
@@ -1424,36 +1450,6 @@ app.post('/api/cart/:userId/add', async (req, res) => {
     }
 });
 
-const handleAddCustomToCart = async () => {
-    if (!userId || !token) {
-        setError("You must be logged in to add items to your cart.");
-        return;
-    }
-    try {
-        await axios.post(
-            `http://localhost:5001/api/cart/${userId}/add`,
-            {
-                itemId: id,
-                quantity: 1,
-                custom_details: {
-                    dimensions: customDims,
-                    material3x3: selectedMaterial3x3,
-                    material2x12: selectedMaterial2x12,
-                    days: laborDays,
-                    price: customPriceDetails.finalSellingPrice,
-                },
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setToastMessage(`Custom ${item.name} added to cart!`);
-        setShowToast(true);
-        setShowCustomModal(false);
-        setError(null);
-    } catch (err) {
-        setError(err.response?.data?.message || "Error adding custom item to cart");
-    }
-};
-
 
 // delete a item from cart
 app.delete('/api/cart/:userId/item/:itemId', authenticateToken, async (req, res) => {
@@ -1513,7 +1509,7 @@ app.delete('/api/cart/:userId/item/:itemId', authenticateToken, async (req, res)
     }
 });
 // Increase or decrease item quantity in cart
-app.put('/api/cart/:userId/item/:itemId/increase', async (req, res) => {
+app.put('/api/cart/:userId/item/:itemId/increase', authenticateToken, async (req, res) => {
     const { userId, itemId } = req.params;
 
     try {
@@ -1542,7 +1538,7 @@ app.put('/api/cart/:userId/item/:itemId/increase', async (req, res) => {
     }
 });
 // Decrease item quantity in cart
-app.put('/api/cart/:userId/item/:itemId/decrease', async (req, res) => {
+app.put('/api/cart/:userId/item/:itemId/decrease',authenticateToken, async (req, res) => {
     const { userId, itemId } = req.params;
 
     try {

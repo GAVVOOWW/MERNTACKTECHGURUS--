@@ -15,6 +15,7 @@ import OrderDetail from './OrderDetail.jsx';
 import ChatPage from './ChatPage.jsx';
 import RecommendationPage from './RecommendationPage.jsx';
 import UserProfile from './UserProfile.jsx';
+import ProtectedRoute from './ProtectedRoute.jsx';
 
 const App = () => {
   return (
@@ -23,16 +24,16 @@ const App = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Signup />} />
         <Route path="/" element={<Itemspage />} />
-        <Route path="/item/:id" element={<SingleItemPage />} />
-        <Route path="/cart" element={<Home />} />
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/checkout/success" element={<SuccessPage />} />
-        <Route path="/checkout/cancel" element={<CancelPage />} />
-        <Route path="/orders" element={<OrderHistory />} />
-        <Route path="/orders/:id" element={<OrderDetail />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/profile" element={<UserProfile />} />
+        <Route path="/item/:id" element={<ProtectedRoute><SingleItemPage /></ProtectedRoute>} />
+        <Route path="/cart" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+        <Route path="/checkout" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+        <Route path="/checkout/success" element={<ProtectedRoute><SuccessPage /></ProtectedRoute>} />
+        <Route path="/checkout/cancel" element={<ProtectedRoute><CancelPage /></ProtectedRoute>} />
+        <Route path="/orders" element={<ProtectedRoute><OrderHistory /></ProtectedRoute>} />
+        <Route path="/orders/:id" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
+        <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/recommendation" element={<RecommendationPage />} />
         <Route path="*" element={<div className="container mt-5"><h2>404 - Page Not Found</h2></div>} />
       </Routes>
