@@ -99,10 +99,26 @@ cloudinary.config({
 // =================================================================
 
 
+const allowedOrigins = [
+    `https://merntacktechgurus-1.onrender.com`,
+     process.env.FRONTEND_URL, // Your live site on Render
+    'http://localhost:5173' ,  // Your local development environment
+  ];
 
+  const corsOptions = {
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like Postman or server-to-server requests)
+      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('This origin is not allowed by CORS'));
+      }
+    }
+  };
+  
+  // Use the new options
+  app.use(cors(corsOptions));
 
-
-app.use(cors({origin:`https://merntacktechgurus-1.onrender.com`})); 
 app.use(express.json());
 // --- START OF CHAT API ROUTES ---
 
