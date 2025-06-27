@@ -1,0 +1,10 @@
+{
+    "scripts": {
+        "start": "node backend/server.js",
+        "dev": "nodemon backend/server.js",
+        "seed": "node backend/scripts/seed.js"
+    },
+    "dependencies": {
+        "@babel/runtime": "^7.24.5"
+    }
+}
