@@ -101,17 +101,9 @@ cloudinary.config({
 
 
 
-const corsOptions = {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    credentials: true,
-    // It can also be helpful to specify which headers are allowed
-    allowedHeaders: "Content-Type, Authorization", 
-  };
 
-// Applies the CORS rules to ALL incoming requests. Correct.
-app.use(cors(corsOptions)); 
-  app.use(express.json());
+app.use(cors({origin:`https://merntacktechgurus-1.onrender.com`})); 
+app.use(express.json());
 // --- START OF CHAT API ROUTES ---
 
 
@@ -136,9 +128,9 @@ app.get('/api/chats', authenticateToken, authorizeRoles("admin"), async (req, re
 
 // This part for the BGE model REMAINS. DO NOT DELETE IT.
 let extractor;
-pipeline('feature-extraction', 'Xenova/bge-large-en-v1.5').then(model => {
+pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5').then(model => {
     extractor = model;
-    console.log('Semantic search model (bge-large-en-v1.5) loaded and ready.');
+    console.log('Semantic search model (Xenova/bge-small-en-v1.5) loaded and ready.');
 });
 
 // ... your other routes
