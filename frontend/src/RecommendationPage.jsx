@@ -85,19 +85,25 @@ const RecommendationPage = () => {
     const userRole = localStorage.getItem("role")
     const itemsPerPage = 12
 
-    // Main function to handle AI-powered semantic search (Hybrid Approach)
-    // In your React component's handleSearch function
-    const handleSearch = async () => {
+   
+
+// In your RecommendationPage.js file
+
+const handleSearch = async () => {
+        if (!searchQuery.trim()) {
+            setSearchResults(null);
+            return;
+        }
         setLoading(true);
         setError(null);
         try {
-            // No more regex or parsing. Just send the raw query.
-            const response = await axios.post('YOUR_API_URL/semantic-search', {
+            const response = await axios.post(`${BACKEND_URL}/api/items/semantic-search`, {
                 query: searchQuery,
             });
             setSearchResults(response.data.ItemData);
         } catch (e) {
-            setError('Failed to get results.');
+            setError('Failed to fetch search results.');
+            console.error("Search API error:", e);
         } finally {
             setLoading(false);
         }

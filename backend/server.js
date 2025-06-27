@@ -11,8 +11,8 @@ import bodyParser from 'body-parser';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { calculateCustomPrice } from "./utils/priceCalculator.js";
-import { pipeline } from '@xenova/transformers';
-import { parseQueryWithGemini } from './utils/geminiParser.js';
+
+
 
 // Model Imports
 import User from "./models/user.model.js";
@@ -33,8 +33,13 @@ import { authenticateToken, authorizeRoles } from "./middleware/auth.js";
 const app = express();
 const server = createServer(app);
 
-dotenv.config({ path: './.env' });
+dotenv.config();
 connectDB();
+
+import { pipeline } from '@xenova/transformers';
+import { parseQueryWithGemini } from './utils/geminiParser.js';
+import { parseQueryWithLlama } from './utils/llamaParser.js';
+
 
 const frontendURL = process.env.FRONTEND_URL;
 
@@ -142,34 +147,33 @@ app.get('/api/chats', authenticateToken, authorizeRoles("admin"), async (req, re
 });
 
 
-// This part for the BGE model REMAINS. DO NOT DELETE IT.
+// Load the model once when the server starts for efficiency
 let extractor;
-pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5').then(model => {
-    extractor = model;
-    console.log('Semantic search model (Xenova/bge-small-en-v1.5) loaded and ready.');
-});
+(async () => {
+    try {
+        console.log('Loading semantic search model (Xenova/bge-small-en-v1.5)...');
+        extractor = await pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5');
+        console.log('Semantic search model loaded successfully.');
+    } catch (err) {
+        console.error('Failed to load semantic search model:', err);
+    }
+})();
 
-// ... your other routes
-
-// --- MODIFIED: The complete, final search endpoint ---
+//sematic search endpoint
 app.post('/api/items/semantic-search', async (req, res) => {
     try {
         const { query } = req.body;
-        if (!query) {
-            return res.status(400).json({ success: false, message: 'Query is required.' });
-        }
-        
-        // 1. PARSE WITH GEMINI FIRST
-        const command = await parseQueryWithGemini(query);
+        if (!query) return res.status(400).json({ success: false, message: 'Query is required.' });
+
+        const command = await parseQueryWithLlama(query);
         console.log("[Gemini Parsed Command]:", command);
         
         const { semanticQuery, limit, sortBy, sortOrder, filters } = command;
 
         if (!extractor) {
-            return res.status(503).json({ success: false, message: 'Embedding model not ready.' });
+            return res.status(503).json({ success: false, message: 'AI search model is still loading. Please try again in a moment.' });
         }
 
-        // 2. BUILD THE DATABASE QUERY using the structured command from Gemini
         const numResults = Math.min(parseInt(limit, 10) || 12, 50);
         const matchStage = {};
         if (filters) {
@@ -181,7 +185,6 @@ app.post('/api/items/semantic-search', async (req, res) => {
             if (filters.is_bestseller !== undefined) matchStage.is_bestseller = filters.is_bestseller;
             if (filters.is_customizable !== undefined) matchStage.is_customizable = filters.is_customizable;
             if (filters.isPackage !== undefined) matchStage.isPackage = filters.isPackage;
-            // Note: Material/Style filters are best handled by vector search but could be added here if needed.
         }
 
         const pipeline = [];
@@ -189,7 +192,6 @@ app.post('/api/items/semantic-search', async (req, res) => {
             pipeline.push({ $match: matchStage });
         }
 
-        // 3. GENERATE EMBEDDING with your BGE model
         const queryEmbedding = await extractor(semanticQuery, { pooling: 'mean', normalize: true });
 
         pipeline.push({
@@ -202,7 +204,6 @@ app.post('/api/items/semantic-search', async (req, res) => {
             }
         });
         
-        // 4. ADD SORTING if specified by Gemini
         if (sortBy && sortOrder) {
             const sortStage = { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } };
             pipeline.push(sortStage);
@@ -223,6 +224,7 @@ app.post('/api/items/semantic-search', async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error during search.' });
     }
 });
+
 // Get or create a chat for a user with an admin
 
 app.post('/api/chats', authenticateToken, async (req, res) => {

@@ -9,12 +9,13 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
  * @returns {Promise<object>} A structured object for searching.
  */
 export async function parseQueryWithGemini(userInput) {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Using Flash for speed
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `
         You are a meticulous Natural Language to Query (NLQ) engine for "Wawa Furniture," a Filipino e-commerce store. Your sole function is to receive a raw text query from a user and convert it into a structured, machine-readable JSON object that will be used to query a database. You must be precise, logical, and strictly adhere to all rules.
 
         ### 1. Guiding Principles
+        - **Principle of Query Sufficiency:** If the user's query is very short (1-2 words) and appears to be only a descriptor (like a color, style, or material), then the 'semanticQuery' MUST be the original query itself.
         - **Literal over Subjective:** Explicit constraints (e.g., "under 10000 pesos") always take precedence over subjective ones (e.g., "cheap").
         - **Conflict Resolution:** If a query is conflicting (e.g., "cheapest premium table"), resolve it logically. Honor the filter ("premium") and the sort ("cheapest").
         - **Semantic Purity:** The 'semanticQuery' is ONLY for vector search. It must be a clean description of the item's essence, stripped of all commands, filters, and sorting instructions.
@@ -43,7 +44,7 @@ export async function parseQueryWithGemini(userInput) {
         \`\`\`
 
         ### 3. Detailed Field-by-Field Population Rules
-        - **semanticQuery (string):** The core product intent (e.g., "wooden armchair", "round glass coffee table"). It MUST NOT contain commands, prices, dimensions, sorting words, or filter words.
+        - **semanticQuery (string):** The core product intent (e.g., "wooden armchair"). It MUST NOT contain commands, prices, dimensions, sorting words, or filter words.
         - **limit (number):** Extract any explicit quantity (e.g., "give me 3", "show 5").
         - **sortBy & sortOrder (string):**
           - "cheapest", "lowest price": sortBy: "price", sortOrder: "asc"
@@ -51,8 +52,8 @@ export async function parseQueryWithGemini(userInput) {
           - "most popular", "top selling": sortBy: "sales", sortOrder: "desc"
           - "newest", "latest": sortBy: "createdAt", sortOrder: "desc"
         - **filters (object):**
-          - **Price (PHP):** "under", "<": 'maxPrice'. "over", ">", "starting at": 'minPrice'. "cheap"/"affordable": 'maxPrice: 7500'. "premium"/"expensive": 'minPrice: 40000'.
-          - **Dimensions (cm):** "X cm long": 'maxLength'. "X cm wide": 'maxWidth'. "X cm tall": 'maxHeight'.
+          - **Price (PHP):** "under", "<", "max of": 'maxPrice'. "over", ">", "starting at": 'minPrice'. "cheap"/"affordable": 'maxPrice: 7500'. "premium"/"expensive": 'minPrice: 40000'.
+          - **Dimensions (cm):** "less than X cm long/deep", "not more than X cm long": 'maxLength'. "X cm wide": 'maxWidth'. "X cm tall/high": 'maxHeight'.
           - **materials (string array):** Extract materials like "narra", "acacia", "rattan", "metal", "wood", "glass". Use singular, lowercase form.
           - **styles (string array):** Extract styles like "modern", "classic", "minimalist", "industrial", "rustic".
           - **Booleans:** "bestseller": 'is_bestseller: true'. "customizable": 'is_customizable: true'. "package"/"set": 'isPackage: true'.
@@ -73,15 +74,13 @@ export async function parseQueryWithGemini(userInput) {
           }
         }
         \`\`\`
-        - User Query: "find the cheapest premium armchairs"
+        - User Query: "i need a wardrobe that is not more than 180cm tall"
         - JSON Output:
         \`\`\`json
         {
-          "semanticQuery": "armchairs",
-          "sortBy": "price",
-          "sortOrder": "asc",
+          "semanticQuery": "wardrobe",
           "filters": {
-            "minPrice": 40000
+            "maxHeight": 180
           }
         }
         \`\`\`
@@ -97,10 +96,11 @@ export async function parseQueryWithGemini(userInput) {
         const response = await result.response;
         const text = response.text();
         const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
         return JSON.parse(jsonString);
     } catch (error) {
         console.error("Gemini parsing error:", error);
-        // Fallback Strategy: If AI fails, use the raw input.
+        
         return { semanticQuery: userInput, filters: {}, limit: 12 };
     }
 }

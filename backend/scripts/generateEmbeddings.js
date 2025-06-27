@@ -10,18 +10,50 @@ import { connectDB } from '../config/db.js';
 
 dotenv.config({ path: './.env' });
 
+/**
+ * THIS IS THE NEW, MORE DETAILED FUNCTION.
+ * It converts numerical and boolean fields into descriptive text.
+ */
 const generateSearchableText = (item) => {
-    const categoryNames = item.category.map(cat => cat.name).join(', ');
-    const furnitureTypeName = item.furnituretype ? item.furnituretype.name : '';
-    const materialNames = (item.customization_options?.materials || []).map(mat => mat.name).join(', ');
+    let textBlock = `Name: ${item.name}. Type: ${item.furnituretype?.name || ''}. Categories: ${item.category.map(cat => cat.name).join(', ')}. Description: ${item.description}.`;
 
-    let textBlock = `Name: ${item.name}. Type: ${furnitureTypeName}. Description: ${item.description}. Categories: ${categoryNames}.`;
-    if (materialNames) {
-        textBlock += ` Available materials include: ${materialNames}.`;
+    const features = [];
+    
+    // --- NEW LOGIC: Convert Price to descriptive words ---
+    if (item.price < 7500) {
+        features.push("budget-friendly", "affordable");
+    } else if (item.price >= 7500 && item.price < 30000) {
+        features.push("mid-range price", "standard price");
+    } else {
+        features.push("premium", "high-end", "luxury");
     }
-    if (item.is_bestseller) textBlock += ' This is a bestselling item.';
-    if (item.isPackage) textBlock += ' This is a package deal.';
-    if (item.is_customizable) textBlock += ' This item is customizable.';
+
+    // --- NEW LOGIC: Convert Dimensions to descriptive words ---
+    const largestDimension = Math.max(item.length, item.width, item.height);
+    if (largestDimension < 60) {
+        features.push("compact", "small size", "good for small spaces");
+    } else if (largestDimension >= 60 && largestDimension < 150) {
+        features.push("standard size", "medium size");
+    } else {
+        features.push("large", "oversized", "statement piece");
+    }
+
+    // --- NEW LOGIC: Add keywords for boolean flags and sales ---
+    if (item.is_bestseller) features.push("bestseller", "best-selling");
+    if (item.is_customizable) features.push("customizable", "can be customized");
+    if (item.isPackage) features.push("package deal", "set of items", "bundle");
+    if (item.stock === 0) features.push("currently out of stock");
+    if (item.sales > 200) features.push("popular choice", "customer favorite");
+    
+    // --- NEW LOGIC: Add available materials as keywords ---
+    const materialNames = (item.customization_options?.materials || []).map(mat => mat.name);
+    if (materialNames.length > 0) {
+        features.push(...materialNames); // Add materials like "Narra", "Acacia"
+    }
+
+    if(features.length > 0) {
+        textBlock += ` Key Features and Properties: ${features.join(', ')}.`;
+    }
 
     return textBlock.replace(/\s+/g, ' ').trim();
 };
@@ -40,18 +72,15 @@ const generateEmbeddings = async () => {
         .populate('category', 'name')
         .populate('furnituretype', 'name');
     
-    console.log(`Found ${items.length} items to process. Forcing re-generation...`);
+    console.log(`Found ${items.length} items to process. Forcing re-generation with detailed text...`);
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         
-        // --- THIS IS THE FIX ---
-        // The safety check that was skipping items has been REMOVED.
-        // The script will now process every single item, regardless of
-        // whether it already has an embedding.
-        
         const textToEmbed = generateSearchableText(item);
-        console.log(`(${i + 1}/${items.length}) Generating new (384-dim) embedding for '${item.name}'...`);
+        console.log(`(${i + 1}/${items.length}) Generating new embedding for '${item.name}'...`);
+        // Uncomment the line below if you want to see the new detailed text for each item
+        // console.log(`   -> Text: "${textToEmbed}"`);
 
         const output = await extractor(textToEmbed, {
             pooling: 'mean',
@@ -59,12 +88,10 @@ const generateEmbeddings = async () => {
         });
         
         const embedding = Array.from(output.data);
-
-        // Overwrite the old embedding with the new one
         await Item.findByIdAndUpdate(item._id, { $set: { embedding: embedding } });
     }
 
-    console.log("✅ Embedding re-generation complete for all items!");
+    console.log("✅ Detailed embedding re-generation complete for all items!");
     await mongoose.disconnect();
     process.exit(0);
 };
