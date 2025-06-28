@@ -38,7 +38,8 @@ connectDB();
 
 import { pipeline } from '@xenova/transformers';
 import { parseQueryWithGemini } from './utils/geminiParser.js';
-import { parseQueryWithLlama } from './utils/llamaParser.js';
+
+
 
 
 const frontendURL = process.env.FRONTEND_URL;
