@@ -12,7 +12,7 @@ const orderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['On Process', 'Delivered', 'Requesting for Refund', 'Refunded', 'completed'],
+    enum: ['On Process', 'Ready for Pickup', 'Delivered', 'Picked Up', 'Requesting for Refund', 'Refunded', 'completed'],
     default: 'On Process'
   },
   transactionId: String,
@@ -53,6 +53,12 @@ const orderSchema = new mongoose.Schema({
   deliveryDate: {
     type: Date,
     default: null
+  },
+  deliveryMethod: {
+    type: String,
+    enum: ['shipping', 'pickup'],
+    required: true,
+    default: 'shipping'
   }
 }, { timestamps: true });
 

@@ -106,23 +106,24 @@ cloudinary.config({
 
 const allowedOrigins = [
     `https://merntacktechgurus-1.onrender.com`,
-     process.env.FRONTEND_URL, // Your live site on Render
-    'http://localhost:5173' ,  // Your local development environment
-  ];
+    process.env.FRONTEND_URL, // Your live site on Render
+    'http://localhost:5173',  // Your local development environment
+];
 
-  const corsOptions = {
+const corsOptions = {
+
     origin: function (origin, callback) {
-      // Allow requests with no origin (like Postman or server-to-server requests)
-      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        callback(new Error('This origin is not allowed by CORS'));
-      }
+        // Allow requests with no origin (like Postman or server-to-server requests)
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('This origin is not allowed by CORS'));
+        }
     }
-  };
-  
-  // Use the new options
-  app.use(cors(corsOptions));
+};
+
+// Use the new options
+app.use(cors(corsOptions));
 
 app.use(express.json());
 // --- START OF CHAT API ROUTES ---
@@ -160,70 +161,147 @@ let extractor;
 })();
 
 //sematic search endpoint
+// The refactored semantic search endpoint
+
 app.post('/api/items/semantic-search', async (req, res) => {
-    try {
-        const { query } = req.body;
-        if (!query) return res.status(400).json({ success: false, message: 'Query is required.' });
 
-        const command = await parseQueryWithLlama(query);
-        console.log("[Gemini Parsed Command]:", command);
-        
-        const { semanticQuery, limit, sortBy, sortOrder, filters } = command;
-
-        if (!extractor) {
-            return res.status(503).json({ success: false, message: 'AI search model is still loading. Please try again in a moment.' });
-        }
-
-        const numResults = Math.min(parseInt(limit, 10) || 12, 50);
-        const matchStage = {};
-        if (filters) {
-            if (filters.maxPrice) matchStage.price = { ...matchStage.price, $lte: filters.maxPrice };
-            if (filters.minPrice) matchStage.price = { ...matchStage.price, $gte: filters.minPrice };
-            if (filters.maxLength) matchStage.length = { $lte: filters.maxLength };
-            if (filters.maxWidth) matchStage.width = { $lte: filters.maxWidth };
-            if (filters.maxHeight) matchStage.height = { $lte: filters.maxHeight };
-            if (filters.is_bestseller !== undefined) matchStage.is_bestseller = filters.is_bestseller;
-            if (filters.is_customizable !== undefined) matchStage.is_customizable = filters.is_customizable;
-            if (filters.isPackage !== undefined) matchStage.isPackage = filters.isPackage;
-        }
-
-        const pipeline = [];
-        if (Object.keys(matchStage).length > 0) {
-            pipeline.push({ $match: matchStage });
-        }
-
-        const queryEmbedding = await extractor(semanticQuery, { pooling: 'mean', normalize: true });
-
-        pipeline.push({
-            $vectorSearch: {
-                index: 'vector_index',
-                path: 'embedding',
-                queryVector: Array.from(queryEmbedding.data),
-                numCandidates: 200,
-                limit: numResults,
-            }
-        });
-        
-        if (sortBy && sortOrder) {
-            const sortStage = { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } };
-            pipeline.push(sortStage);
-        }
-
-        pipeline.push({
-             $project: {
-                _id: 1, name: 1, description: 1, price: 1, imageUrl: 1, sales: 1,
-                score: { $meta: "vectorSearchScore" } 
-            }
-        });
-
-        const results = await Item.aggregate(pipeline);
-        res.json({ success: true, ItemData: results, parsedCommand: command });
-
-    } catch (err) {
-        console.error('Error in semantic search route:', err);
-        res.status(500).json({ success: false, message: 'Server error during search.' });
-    }
-});
+        try {
+    
+            const { query, limit: reqLimit } = req.body;
+    
+            if (!query) return res.status(400).json({ success: false, message: 'Query is required.' });
+    
+    
+    
+            const command = await parseQueryWithGemini(query);
+    
+            console.log("[Gemini Parsed Command]:", command);
+    
+    
+    
+            const { semanticQuery, limit, sortBy, sortOrder, filters } = command;
+    
+    
+    
+            if (!extractor) {
+    
+                return res.status(503).json({ success: false, message: 'AI search model is still loading. Please try again in a moment.' });
+    
+            }
+    
+    
+    
+            // Prefer: parsed limit -> request body limit -> default 12
+    
+            const numResults = parseInt(limit, 10) || parseInt(reqLimit, 10) || 12;
+    
+    
+    
+            // Build a $match stage for any non-vector filters we want to apply *after* similarity scoring
+    
+            const postMatchStage = {};
+    
+            if (filters) {
+    
+                if (filters.maxPrice) postMatchStage.price = { ...postMatchStage.price, $lte: filters.maxPrice };
+    
+                if (filters.minPrice) postMatchStage.price = { ...postMatchStage.price, $gte: filters.minPrice };
+    
+                if (filters.maxLength) postMatchStage.length = { $lte: filters.maxLength };
+    
+                if (filters.maxWidth) postMatchStage.width = { $lte: filters.maxWidth };
+    
+                if (filters.maxHeight) postMatchStage.height = { $lte: filters.maxHeight };
+    
+                if (filters.is_bestseller !== undefined) postMatchStage.is_bestseller = filters.is_bestseller;
+    
+                if (filters.is_customizable !== undefined) postMatchStage.is_customizable = filters.is_customizable;
+    
+                if (filters.isPackage !== undefined) postMatchStage.isPackage = filters.isPackage;
+    
+            }
+    
+    
+    
+            const pipeline = [];
+    
+    
+    
+            const queryEmbedding = await extractor(semanticQuery, { pooling: 'mean', normalize: true });
+    
+    
+    
+            // $vectorSearch MUST be the first stage in the pipeline
+    
+            pipeline.push({
+    
+                $vectorSearch: {
+    
+                    index: 'vector_index',
+    
+                    path: 'embedding',
+    
+                    queryVector: Array.from(queryEmbedding.data),
+    
+                    numCandidates: 200,
+    
+                    limit: numResults,
+    
+                }
+    
+            });
+    
+    
+    
+            // Apply attribute-based filters *after* the similarity search
+    
+            if (Object.keys(postMatchStage).length > 0) {
+    
+                pipeline.push({ $match: postMatchStage });
+    
+            }
+    
+    
+    
+            if (sortBy && sortOrder) {
+    
+                const sortStage = { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } };
+    
+                pipeline.push(sortStage);
+    
+            }
+    
+    
+    
+            pipeline.push({
+    
+                $project: {
+    
+                    _id: 1, name: 1, description: 1, price: 1, imageUrl: 1, sales: 1,
+    
+                    score: { $meta: "vectorSearchScore" }
+    
+                }
+    
+            });
+    
+    
+    
+            const results = await Item.aggregate(pipeline);
+    
+            res.json({ success: true, ItemData: results, parsedCommand: command });
+    
+    
+    
+        } catch (err) {
+    
+            console.error('Error in semantic search route:', err);
+    
+            res.status(500).json({ success: false, message: 'Server error during search.' });
+    
+        }
+    
+    });
 
 // Get or create a chat for a user with an admin
 
@@ -769,20 +847,98 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         console.log("[ORDER CREATE] Processed items with custom dimensions:", processedItems);
 
+        // === PHASE 1: DOWN PAYMENT SYSTEM - CHECKING ITEM CUSTOMIZATION STATUS ===
+        console.log("=== PHASE 1: STARTING ITEM CUSTOMIZATION ANALYSIS ===");
+        console.log("🔍 Now checking if any items in this order are customizable...");
+        
+        const itemIds = processedItems.map(item => item.item);
+        console.log("📋 Item IDs to check:", itemIds);
+        
+        const itemDetails = await Item.find({ _id: { $in: itemIds } });
+        console.log("📦 Retrieved item details from database:", itemDetails.length, "items found");
+        
+        // Check each item individually for better logging
+        console.log("=== INDIVIDUAL ITEM CUSTOMIZATION CHECK ===");
+        const itemCustomizationResults = itemDetails.map(item => {
+            const result = {
+                id: item._id,
+                name: item.name,
+                is_customizable: item.is_customizable
+            };
+            
+            if (item.is_customizable) {
+                console.log(`✅ CUSTOMIZABLE ITEM FOUND: "${item.name}" (ID: ${item._id}) - is_customizable: true`);
+            } else {
+                console.log(`🔧 REGULAR ITEM FOUND: "${item.name}" (ID: ${item._id}) - is_customizable: false`);
+            }
+            
+            return result;
+        });
+        
+        const hasCustomizableItems = itemDetails.some(item => item.is_customizable);
+        
+        console.log("=== CUSTOMIZATION ANALYSIS SUMMARY ===");
+        console.log("📊 Total items analyzed:", itemDetails.length);
+        console.log("🎯 Has customizable items:", hasCustomizableItems);
+        console.log("📝 Full customization breakdown:", itemCustomizationResults);
+
+        // === PHASE 1: DETERMINING INITIAL ORDER STATUS BASED ON ITEM TYPE AND DELIVERY METHOD ===
+        console.log("=== PHASE 1: ORDER STATUS DETERMINATION LOGIC ===");
+        console.log("🚀 Starting status determination process...");
+        console.log("📋 Current delivery option:", deliveryOption);
+        
+        let initialStatus = 'On Process';
+        
+        if (!hasCustomizableItems) {
+            console.log("🔧 PROCESSING REGULAR ITEMS (NON-CUSTOMIZABLE)");
+            console.log("ℹ️  Since all items are regular (not customizable), applying down payment system logic...");
+            
+            if (deliveryOption === 'shipping') {
+                initialStatus = 'On Process';
+                console.log("📦 SHIPPING DELIVERY DETECTED for regular items");
+                console.log("✅ When delivery method is 'shipping' for regular items → Status set to 'On Process'");
+                console.log("🔄 This means the order will automatically be processed for shipping delivery");
+            } else if (deliveryOption === 'pickup') {
+                initialStatus = 'Ready for Pickup';
+                console.log("🏪 PICKUP DELIVERY DETECTED for regular items");
+                console.log("✅ When delivery method is 'pickup' for regular items → Status set to 'Ready for Pickup'");
+                console.log("🔄 This means the order is immediately ready for customer pickup");
+            } else {
+                console.log("⚠️  UNKNOWN DELIVERY METHOD:", deliveryOption);
+                console.log("🔄 Defaulting to 'On Process' status for safety");
+            }
+        } else {
+            console.log("🎨 PROCESSING CUSTOMIZABLE ITEMS");
+            console.log("ℹ️  Since this order contains customizable items, keeping default processing status...");
+            console.log("✅ When order contains customizable items → Status remains 'On Process'");
+            console.log("🔄 Customizable items require manual processing regardless of delivery method");
+        }
+
+        console.log("=== FINAL STATUS DETERMINATION ===");
+        console.log("🎯 Final determined status:", initialStatus);
+        console.log("📝 Status logic applied based on:");
+        console.log("   - Has customizable items:", hasCustomizableItems);
+        console.log("   - Delivery option:", deliveryOption);
+
         // Create the new order with a flat structure matching your schema
+        console.log("=== CREATING ORDER DATA OBJECT ===");
         const orderData = {
             user: userId,
             amount,
-            status: 'On Process',
+            status: initialStatus,
             transactionHash: transactionHash,
             items: processedItems,
             // Top-level fields as defined in your schema
             address: orderAddress,
             phone: orderPhone,
             shippingAddress: orderShippingAddress,
+            deliveryMethod: deliveryOption, // Add delivery method to order data
             // Renaming to match schema field 'deliveryDate'
             deliveryDate: scheduledDate ? new Date(scheduledDate) : null
         };
+        
+        console.log("📦 Order data object created with status:", orderData.status);
+        console.log("🚚 Order delivery method set to:", orderData.deliveryMethod);
 
         console.log("=== FINAL ORDER DATA ===");
         console.log("Order data to save:", orderData);
@@ -926,27 +1082,164 @@ app.put('/api/orders/:id/request-refund', authenticateToken, async (req, res) =>
 //USERS API----------------------------------------------------------------
 
 // registration
+// Enhanced Registration Route with Better Validation and Error Handling
 app.post("/api/registeruser", async (req, res) => {
+    console.log("=== REGISTRATION REQUEST RECEIVED ===");
+    console.log("Request body:", req.body);
+    
     const { name, email, password, phone, address, role } = req.body;
-    if (!name || !email || !password || !phone || !address) {
-        return res.status(400).json({ success: false, message: "Please fill all the fields" });
+    
+    // Enhanced validation with specific error messages
+    const validationErrors = [];
+    
+    if (!name || name.trim().length < 2) {
+        validationErrors.push("Name must be at least 2 characters long");
     }
+    
+    if (!email || !email.trim()) {
+        validationErrors.push("Email is required");
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+        validationErrors.push("Please provide a valid email address");
+    }
+    
+    if (!password) {
+        validationErrors.push("Password is required");
+    } else if (password.length < 6) {
+        validationErrors.push("Password must be at least 6 characters long");
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+        validationErrors.push("Password must contain at least one uppercase letter, one lowercase letter, and one number");
+    }
+    
+    if (!phone || phone.trim().length < 10) {
+        validationErrors.push("Please provide a valid phone number");
+    }
+    
+    if (!address || address.trim().length < 10) {
+        validationErrors.push("Please provide a complete address");
+    }
+    
+    // Return validation errors if any
+    if (validationErrors.length > 0) {
+        console.log("❌ Validation failed:", validationErrors);
+        return res.status(400).json({ 
+            success: false, 
+            message: "Validation failed",
+            errors: validationErrors
+        });
+    }
+    
     try {
-        const existingUser = await User.findOne({ email });
+        // Check for existing user (case insensitive)
+        console.log("🔍 Checking for existing user with email:", email);
+        const existingUser = await User.findOne({ 
+            email: { $regex: new RegExp(`^${email.trim()}$`, 'i') } 
+        });
+        
         if (existingUser) {
-            return res.status(409).json({ success: false, message: "Email already in use" });
+            console.log("❌ User already exists with email:", email);
+            return res.status(409).json({ 
+                success: false, 
+                message: "An account with this email already exists. Please use a different email or try logging in." 
+            });
         }
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = new User({ name, email, phone, address, password: hashedPassword, role: role || "user" });
-        await newUser.save();
-        const newCart = new Cart({ user: newUser._id, items: [] });
-        await newCart.save();
-        newUser.cart = newCart._id;
-        await newUser.save();
-        res.status(201).json({ success: true, message: "User and Cart Created", UserData: { user: newUser, cart: newCart } });
+        
+        console.log("✅ Email is available");
+        console.log("🔐 Hashing password...");
+        
+        // Hash password with proper salt rounds
+        const saltRounds = 12; // Increased for better security
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        
+        console.log("✅ Password hashed successfully");
+        
+        // Prepare user data
+        const userData = {
+            name: name.trim(),
+            email: email.trim().toLowerCase(), // Normalize email
+            phone: phone.trim(),
+            address: address.trim(),
+            password: hashedPassword,
+            role: role || "user"
+        };
+        
+        console.log("💾 Creating new user...");
+        const newUser = new User(userData);
+        const savedUser = await newUser.save();
+        
+        console.log("✅ User created successfully:", {
+            id: savedUser._id,
+            email: savedUser.email,
+            role: savedUser.role
+        });
+        
+        // Create cart for the user
+        console.log("🛒 Creating cart for user...");
+        const newCart = new Cart({ 
+            user: savedUser._id, 
+            items: [] 
+        });
+        const savedCart = await newCart.save();
+        
+        // Link cart to user
+        savedUser.cart = savedCart._id;
+        await savedUser.save();
+        
+        console.log("✅ Cart created and linked to user");
+        console.log("=== REGISTRATION SUCCESSFUL ===");
+        
+        // Return success response (don't include password)
+        const userResponse = {
+            id: savedUser._id,
+            name: savedUser.name,
+            email: savedUser.email,
+            phone: savedUser.phone,
+            role: savedUser.role,
+            cart: savedCart._id
+        };
+        
+        res.status(201).json({ 
+            success: true, 
+            message: "Account created successfully! You can now log in.", 
+            UserData: { 
+                user: userResponse, 
+                cart: savedCart 
+            } 
+        });
+        
     } catch (error) {
-        console.error("Error in Creating User or Cart", error.message);
-        res.status(500).json({ success: false, message: "Server Error during registration" });
+        console.log("=== REGISTRATION ERROR ===");
+        console.error("Registration error:", error);
+        
+        // Handle specific MongoDB errors
+        if (error.code === 11000) {
+            // Duplicate key error
+            const field = Object.keys(error.keyPattern)[0];
+            const message = field === 'email' 
+                ? "An account with this email already exists" 
+                : `This ${field} is already in use`;
+                
+            return res.status(409).json({ 
+                success: false, 
+                message 
+            });
+        }
+        
+        if (error.name === 'ValidationError') {
+            // Mongoose validation error
+            const validationErrors = Object.values(error.errors).map(e => e.message);
+            return res.status(400).json({ 
+                success: false, 
+                message: "Validation failed",
+                errors: validationErrors
+            });
+        }
+        
+        // Generic server error
+        res.status(500).json({ 
+            success: false, 
+            message: "Server error during registration. Please try again.",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
@@ -990,47 +1283,118 @@ app.get('/api/allusers', async (req, res) => {
 });
 // login ng user with encryption
 app.post("/api/login", async (req, res) => {
+    console.log("=== LOGIN REQUEST RECEIVED ===");
+    console.log("Request body:", req.body);
+    console.log("Headers:", req.headers);
+    
     const { email, password } = req.body;
 
     // Validate input
     if (!email || !password) {
-        return res.status(400).json({ success: false, message: "Please fill in all fields" });
+        console.log("❌ Missing email or password");
+        return res.status(400).json({ 
+            success: false, 
+            message: "Please fill in all fields" 
+        });
     }
 
     try {
-        // Find user by email
-        const user = await User.findOne({ email });
+        console.log("🔍 Searching for user with email:", email);
+        
+        // Find user by email (case insensitive)
+        const user = await User.findOne({ 
+            email: { $regex: new RegExp(`^${email}$`, 'i') } 
+        });
 
         if (!user) {
-            return res.status(401).json({ success: false, message: "Invalid email or password" });
+            console.log("❌ User not found with email:", email);
+            return res.status(401).json({ 
+                success: false, 
+                message: "Invalid email or password" 
+            });
         }
-        console.log("Found user:", user);
+
+        console.log("✅ User found:", {
+            id: user._id,
+            email: user.email,
+            role: user.role,
+            hasPassword: !!user.password
+        });
+
+        // Check if password exists
+        if (!user.password) {
+            console.log("❌ User has no password set");
+            return res.status(401).json({ 
+                success: false, 
+                message: "Account setup incomplete. Please contact support." 
+            });
+        }
+
+        console.log("🔐 Comparing passwords...");
+        console.log("Provided password length:", password.length);
+        console.log("Stored hash exists:", !!user.password);
 
         // Compare passwords
         const isMatch = await bcrypt.compare(password, user.password);
-
-        console.log("Attempting to compare:", {
-            providedPassword: password,
-            hashedPasswordFromDB: user.password
-        });
-
         console.log("Password match result:", isMatch);
 
-
         if (!isMatch) {
-            return res.status(401).json({ success: false, message: "Invalid email or password" });
+            console.log("❌ Password does not match");
+            return res.status(401).json({ 
+                success: false, 
+                message: "Invalid email or password" 
+            });
+        }
+
+        console.log("✅ Password matches, generating token...");
+
+        // Check JWT_SECRET
+        if (!process.env.JWT_SECRET) {
+            console.log("❌ JWT_SECRET not configured");
+            return res.status(500).json({ 
+                success: false, 
+                message: "Server configuration error" 
+            });
         }
 
         // Issue JWT
         const token = jwt.sign(
-            { id: user._id, role: user.role },
+            { 
+                id: user._id, 
+                role: user.role,
+                email: user.email 
+            },
             process.env.JWT_SECRET,
             { expiresIn: "1d" }
         );
-        res.status(200).json({ success: true, message: "Login successful", token, userId: user._id, role: user.role });
+
+        console.log("✅ Token generated successfully");
+        console.log("=== LOGIN SUCCESSFUL ===");
+
+        res.status(200).json({ 
+            success: true, 
+            message: "Login successful", 
+            token, 
+            userId: user._id, 
+            role: user.role,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+
     } catch (error) {
-        console.error("Login error:", error.message);
-        res.status(500).json({ success: false, message: "Server error during login" });
+        console.log("=== LOGIN ERROR ===");
+        console.error("Login error:", error);
+        console.error("Error stack:", error.stack);
+        
+        res.status(500).json({ 
+            success: false, 
+            message: "Server error during login",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 // read one user
@@ -1362,7 +1726,7 @@ app.get('/api/cart/:userId/items', authenticateToken, async (req, res) => {
     }
 });
 // Adding item to Cart
-app.post('/api/cart/:userId/add',authenticateToken, async (req, res) => {
+app.post('/api/cart/:userId/add', authenticateToken, async (req, res) => {
     const { userId } = req.params;
     const { itemId, quantity = 1, customH, customW, customL, legsFrameMaterial, tabletopMaterial } = req.body;
 
@@ -1548,7 +1912,7 @@ app.put('/api/cart/:userId/item/:itemId/increase', authenticateToken, async (req
     }
 });
 // Decrease item quantity in cart
-app.put('/api/cart/:userId/item/:itemId/decrease',authenticateToken, async (req, res) => {
+app.put('/api/cart/:userId/item/:itemId/decrease', authenticateToken, async (req, res) => {
     const { userId, itemId } = req.params;
 
     try {

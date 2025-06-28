@@ -1,7 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Initialize with your API key from the .env file
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI("AIzaSyABLvKd3pCrx_dQ2CWxWSereILXFKfRfgA");
+
 
 /**
  * Uses Gemini to parse a raw user query into a structured command.

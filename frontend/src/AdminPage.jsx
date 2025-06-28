@@ -509,18 +509,31 @@ const AdminPage = () => {
 
     // Helper function for status variants
     const getStatusVariant = (status) => {
+        console.log("🎨 [getStatusVariant] Getting badge variant for status:", status);
         switch (status) {
             case "On Process":
+                console.log("🎨 [getStatusVariant] Returning 'primary' for On Process");
                 return "primary"
+            case "Ready for Pickup":
+                console.log("🎨 [getStatusVariant] Returning 'warning' for Ready for Pickup");
+                return "warning"
             case "Delivered":
+                console.log("🎨 [getStatusVariant] Returning 'success' for Delivered");
+                return "success"
+            case "Picked Up":
+                console.log("🎨 [getStatusVariant] Returning 'success' for Picked Up");
                 return "success"
             case "Requesting for Refund":
+                console.log("🎨 [getStatusVariant] Returning 'info' for Requesting for Refund");
                 return "info"
             case "Refunded":
+                console.log("🎨 [getStatusVariant] Returning 'danger' for Refunded");
                 return "danger"
             case "Completed":
+                console.log("🎨 [getStatusVariant] Returning 'success' for Completed");
                 return "success"
             default:
+                console.log("🎨 [getStatusVariant] Returning 'secondary' for unknown status:", status);
                 return "secondary"
         }
     }
@@ -533,14 +546,42 @@ const AdminPage = () => {
         const [statusFilter, setStatusFilter] = useState("all")
 
         const handleStatusChange = async (orderId, newStatus) => {
-            if (!window.confirm(`Change status to "${newStatus}"?`)) return
+            console.log("🔄 [handleStatusChange] STARTING status change process");
+            console.log("🔄 [handleStatusChange] Order ID:", orderId);
+            console.log("🔄 [handleStatusChange] New Status:", newStatus);
+            
+            if (!window.confirm(`Change status to "${newStatus}"?`)) {
+                console.log("❌ [handleStatusChange] User cancelled status change");
+                return;
+            }
+            
+            console.log("✅ [handleStatusChange] User confirmed status change");
+            
             try {
-                const token = localStorage.getItem("token")
-                const newStatusRes = await axios.put(`${BACKEND_URL}/api/orders/${orderId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } })
-                fetchData()
+                const token = localStorage.getItem("token");
+                console.log("🔑 [handleStatusChange] Token retrieved:", token ? "Token exists" : "No token found");
+                
+                console.log("📡 [handleStatusChange] Sending PUT request to:", `${BACKEND_URL}/api/orders/${orderId}/status`);
+                console.log("📡 [handleStatusChange] Request payload:", { status: newStatus });
+                
+                const newStatusRes = await axios.put(
+                    `${BACKEND_URL}/api/orders/${orderId}/status`, 
+                    { status: newStatus }, 
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                
+                console.log("✅ [handleStatusChange] Status update successful!");
+                console.log("📋 [handleStatusChange] Response data:", newStatusRes.data);
+                
+                // Refresh the data to show updated status
+                console.log("🔄 [handleStatusChange] Refreshing order data...");
+                fetchData();
+                
             } catch (err) {
-                console.error("Error updating order status:", err)
-                alert("Failed to update status.")
+                console.error("❌ [handleStatusChange] Error updating order status:", err);
+                console.error("❌ [handleStatusChange] Error response:", err.response?.data);
+                console.error("❌ [handleStatusChange] Error status:", err.response?.status);
+                alert("Failed to update status.");
             }
         }
 

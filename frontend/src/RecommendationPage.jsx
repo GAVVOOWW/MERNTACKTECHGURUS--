@@ -85,11 +85,11 @@ const RecommendationPage = () => {
     const userRole = localStorage.getItem("role")
     const itemsPerPage = 12
 
-   
 
-// In your RecommendationPage.js file
 
-const handleSearch = async () => {
+    // In your RecommendationPage.js file
+
+    const handleSearch = async () => {
         if (!searchQuery.trim()) {
             setSearchResults(null);
             return;
@@ -99,6 +99,7 @@ const handleSearch = async () => {
         try {
             const response = await axios.post(`${BACKEND_URL}/api/items/semantic-search`, {
                 query: searchQuery,
+                limit: limit,
             });
             setSearchResults(response.data.ItemData);
         } catch (e) {
@@ -284,30 +285,7 @@ const handleSearch = async () => {
                             </Nav.Link>
                         </Nav>
 
-                        <Form className="flex-grow-1 mx-4" style={{ maxWidth: "600px" }} onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
-                            <InputGroup>
-                                <Form.Control
-                                    type="search"
-                                    placeholder="Ask our AI... (e.g., 'a wooden table for my office')"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                <Form.Select
-                                    style={{ maxWidth: "120px" }}
-                                    value={limit}
-                                    onChange={(e) => setLimit(Number(e.target.value))}
-                                    aria-label="Number of results"
-                                >
-                                    <option value={6}>Show 6</option>
-                                    <option value={12}>Show 12</option>
-                                    <option value={24}>Show 24</option>
-                                    <option value={48}>Show 48</option>
-                                </Form.Select>
-                                <Button variant="primary" onClick={handleSearch} disabled={loading}>
-                                    {loading && searchResults !== null ? <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" /> : <BsSearch />}
-                                </Button>
-                            </InputGroup>
-                        </Form>
+                        
 
                         <Nav className="ms-auto">
                             {userRole === "admin" && (
@@ -331,50 +309,40 @@ const handleSearch = async () => {
 
             <div style={{ backgroundImage: `linear-gradient(135deg, #667eea 0%, #764ba2 100%)`, color: "white", padding: "4rem 0", textAlign: "center", }} className="mb-5">
                 <Container>
-                    <div className="mb-4"><BsRobot size={64} className="mb-3" /></div>
-                    <h1 className="display-4 fw-bold mb-3">AI-Powered Semantic Search</h1>
+                   
+                    <h1 className="display-4 fw-bold mb-3"><BsRobot size={64} className="mb-3" /> AI-Powered Semantic Search</h1>
                     <p className="lead fs-5 mb-4">Ask for furniture in your own words and let our AI find the perfect match for you.</p>
                     <div className="d-flex justify-content-center gap-3">
-                        <Button variant="light" size="lg" as={Link} to="/">
-                            <BsShop className="me-2" /> Browse All Products
-                        </Button>
-                        <Button variant="outline-light" size="lg">
-                            <BsLightbulb className="me-2" /> How It Works
-                        </Button>
+                    <Form className="flex-grow-1 mx-4" style={{ maxWidth: "800px", maxHeight: "100px" }} onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
+                            <InputGroup>
+                                <Form.Control
+                                    type="search"
+                                    placeholder="Ask our AI... (e.g., 'a wooden table for my office')"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                <Form.Select
+                                    style={{ maxWidth: "120px" }}
+                                    value={limit}
+                                    onChange={(e) => setLimit(Number(e.target.value))}
+                                    aria-label="Number of results"
+                                >
+                                    <option value={6}>Show 6</option>
+                                    <option value={12}>Show 12</option>
+                                    <option value={24}>Show 24</option>
+                                    <option value={48}>Show 48</option>
+                                </Form.Select>
+                                <Button variant="primary" onClick={handleSearch} disabled={loading}>
+                                    {loading && searchResults !== null ? <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" /> : <BsSearch />}
+                                </Button>
+                            </InputGroup>
+                        </Form>
                     </div>
                 </Container>
             </div>
 
             <Container className="my-5">
-                <Row className="mb-5">
-                    <Col md={4} className="mb-3">
-                        <Card className="border-0 shadow-sm h-100 text-center">
-                            <Card.Body className="p-4">
-                                <BsStars size={48} className="text-primary mb-3" />
-                                <h5 className="fw-bold">Conversational</h5>
-                                <p className="text-muted mb-0">Search for items using natural, everyday language.</p>
-                            </Card.Body>
-                        </Card>
-                    </Col>
-                    <Col md={4} className="mb-3">
-                        <Card className="border-0 shadow-sm h-100 text-center">
-                            <Card.Body className="p-4">
-                                <BsGift size={48} className="text-success mb-3" />
-                                <h5 className="fw-bold">Context-Aware</h5>
-                                <p className="text-muted mb-0">Our AI understands the meaning and intent behind your query.</p>
-                            </Card.Body>
-                        </Card>
-                    </Col>
-                    <Col md={4} className="mb-3">
-                        <Card className="border-0 shadow-sm h-100 text-center">
-                            <Card.Body className="p-4">
-                                <BsCheckCircle size={48} className="text-info mb-3" />
-                                <h5 className="fw-bold">Relevant Results</h5>
-                                <p className="text-muted mb-0">Get the most relevant product matches, not just keyword hits.</p>
-                            </Card.Body>
-                        </Card>
-                    </Col>
-                </Row>
+               
 
                 <div className="text-center mb-5">
                     <h2 className="fw-bold text-dark mb-3">
@@ -387,12 +355,7 @@ const handleSearch = async () => {
                 <Row className="mb-4">
                     <Col>
                         <Card className="border-0 shadow-sm mb-4">
-                            <Card.Header className="bg-white border-bottom">
-                                <div className="d-flex justify-content-between align-items-center">
-                                    <h6 className="mb-0 fw-bold"><BsSliders className="me-2" />Smart Filters</h6>
-                                    <Button variant="link" size="sm" onClick={() => setShowFilters(!showFilters)} className="p-0"><BsFilter /></Button>
-                                </div>
-                            </Card.Header>
+                            
                             <Collapse in={showFilters}>
                                 <Card.Body>
                                     <Row className="align-items-center">
