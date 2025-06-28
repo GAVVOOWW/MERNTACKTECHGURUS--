@@ -15,6 +15,8 @@ const CartSchema = new mongoose.Schema({
       customL: { type: Number },
       legsFrameMaterial: { type: String },
       tabletopMaterial: { type: String },
+      customPrice: { type: Number },
+      customizations: { type: mongoose.Schema.Types.Mixed },
     }
   ],
   createdAt: { type: Date, default: Date.now }

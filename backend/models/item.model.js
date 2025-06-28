@@ -18,6 +18,7 @@ const ItemSchema = new mongoose.Schema({
   category: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
   stock: { type: Number, default: 0 },
   furnituretype: { type: mongoose.Schema.Types.ObjectId, ref: 'FurnitureType', required: true },
+  status: { type: Number, default: 1, enum: [0, 1] },
   is_bestseller: { type: Boolean, default: false },
   is_customizable: { type: Boolean, default: false },
   is_customizable_price: { type: Number, default: 0 },

@@ -47,6 +47,8 @@ import {
   BsPencil,
   BsCheck,
   BsX,
+  BsCurrencyDollar,
+  BsGear,
 } from "react-icons/bs"
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
@@ -97,6 +99,9 @@ const CheckoutPage = () => {
   // Payment method state
   const [paymentMethod, setPaymentMethod] = useState("card")
 
+  // Payment type state for customized items
+  const [paymentType, setPaymentType] = useState("full_payment") // "down_payment" or "full_payment"
+
   // Items passed from the previous page
   const allItems = location.state?.selectedItems || []
 
@@ -111,6 +116,62 @@ const CheckoutPage = () => {
   )
 
   const userRole = localStorage.getItem("role")
+
+  // Helper function to check if cart has customized items
+  const hasCustomizedItems = () => {
+    console.log("🔍 [hasCustomizedItems] Checking if cart has customized items")
+    console.log("📝 Selected items:", selectedItems)
+
+    const hasCustomized = selectedItems.some(entry => {
+      const isCustomized = entry.item?.is_customizable || false
+      console.log(`📋 Item ${entry.item?.name}: is_customizable = ${isCustomized}`)
+      return isCustomized
+    })
+
+    console.log("✅ Cart has customized items:", hasCustomized)
+    return hasCustomized
+  }
+
+  // Helper function to calculate payment amounts for mixed cart
+  const calculatePaymentAmounts = () => {
+    console.log("💰 [calculatePaymentAmounts] Calculating payment amounts for cart")
+    console.log("📋 Selected items:", selectedItems)
+
+    let customizedTotal = 0
+    let normalTotal = 0
+
+    selectedItems.forEach(entry => {
+      const itemTotal = entry.item.price * entry.quantity
+      const isCustomized = entry.item?.is_customizable || false
+
+      console.log(`📦 Item: ${entry.item?.name}`)
+      console.log(`💵 Price: ₱${entry.item.price}, Quantity: ${entry.quantity}, Total: ₱${itemTotal}`)
+      console.log(`🔧 Is Customized: ${isCustomized}`)
+
+      if (isCustomized) {
+        customizedTotal += itemTotal
+        console.log(`➕ Added to customized total: ₱${itemTotal}`)
+      } else {
+        normalTotal += itemTotal
+        console.log(`➕ Added to normal total: ₱${itemTotal}`)
+      }
+    })
+
+    // Down payment = (customized total * 30%) + normal items total
+    const downPaymentAmount = (customizedTotal * 0.3) + normalTotal
+    // Remaining balance = customized total * 70%
+    const remainingBalance = customizedTotal * 0.7
+    const fullAmount = customizedTotal + normalTotal
+
+    console.log("📊 Payment Calculation Results:")
+    console.log(`🔧 Customized Items Total: ₱${customizedTotal.toFixed(2)}`)
+    console.log(`📦 Normal Items Total: ₱${normalTotal.toFixed(2)}`)
+    console.log(`💳 Down Payment Amount: ₱${downPaymentAmount.toFixed(2)}`)
+    console.log(`💰 Remaining Balance: ₱${remainingBalance.toFixed(2)}`)
+    console.log(`💸 Full Amount: ₱${fullAmount.toFixed(2)}`)
+
+    return { customizedTotal, normalTotal, downPaymentAmount, remainingBalance, fullAmount }
+  }
 
   // Fetch geographic data
   useEffect(() => {
@@ -212,7 +273,32 @@ const CheckoutPage = () => {
   // Filter selected items and calculate totals
   const selectedItems = allItems.filter((entry) => entry.item && selected[entry.item._id])
   const total = selectedItems.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0)
-  const grandTotal = total + shippingFee
+
+
+
+  // Calculate the actual amount to be charged for the current payment
+  const getActualPaymentAmount = () => {
+    if (hasCustomizedItems() && paymentType === "down_payment") {
+      // For down payment: charge 30% of customized items + full price of normal items
+      let actualAmount = 0
+      selectedItems.forEach(entry => {
+        const itemTotal = entry.item.price * entry.quantity
+        const isCustomized = entry.item?.is_customizable || false
+
+        if (isCustomized) {
+          actualAmount += itemTotal * 0.3 // 30% of customized items
+        } else {
+          actualAmount += itemTotal // Full price of normal items
+        }
+      })
+      return actualAmount
+    } else {
+      // For full payment: charge full price of all items
+      return total
+    }
+  }
+
+  const grandTotal = getActualPaymentAmount() + shippingFee
 
   const handleSelect = (itemId) => {
     setSelected((prev) => ({
@@ -256,7 +342,14 @@ const CheckoutPage = () => {
     console.log("Shipping info:", shippingInfo);
     console.log("Scheduled date:", scheduledDate);
     console.log("Shipping fee:", shippingFee);
+    console.log("Payment type:", paymentType);
+    console.log("Has customized items:", hasCustomizedItems());
     console.log("Grand total:", grandTotal);
+
+    if (hasCustomizedItems()) {
+      const amounts = calculatePaymentAmounts();
+      console.log("Payment amounts breakdown:", amounts);
+    }
 
     // Validation
     if (selectedItems.length === 0) {
@@ -307,9 +400,30 @@ const CheckoutPage = () => {
     localStorage.setItem(counterKey, counter);
     const transactionHash = `${userId}-${counter}`;
 
+    // Calculate payment information for order data
+    const paymentInfo = hasCustomizedItems()
+      ? {
+        ...calculatePaymentAmounts(),
+        paymentType,
+        hasCustomizedItems: true,
+        actualPaymentAmount: getActualPaymentAmount()
+      }
+      : {
+        paymentType: "full_payment",
+        hasCustomizedItems: false,
+        fullAmount: total,
+        actualPaymentAmount: total
+      }
+
+    console.log("💳 Payment info for order:", paymentInfo)
+
     const orderData = {
       user: userId,
-      amount: grandTotal,
+      amount: total, // Original total without shipping
+      totalWithShipping: grandTotal, // Total including shipping
+      paidAmount: grandTotal, // Amount actually being paid now
+      paymentType: paymentInfo.paymentType,
+      hasCustomizedItems: paymentInfo.hasCustomizedItems,
       deliveryOption: deliveryOption,
       shippingFee: shippingFee,
       scheduledDate: deliveryOption === "shipping" ? scheduledDate : null,
@@ -339,12 +453,21 @@ const CheckoutPage = () => {
     console.log("Order data saved to localStorage");
 
     try {
-      const itemsPayload = selectedItems.map((entry) => ({
-        id: entry.item._id,
-        name: entry.item.name,
-        price: entry.item.price,
-        quantity: entry.quantity,
-      }))
+      const itemsPayload = selectedItems.map((entry) => {
+        const isCustomized = entry.item?.is_customizable || false;
+        let priceToUse = entry.item.price;
+        // If paying only the down-payment, charge 30% for customized items now
+        if (hasCustomizedItems() && paymentType === "down_payment" && isCustomized) {
+          priceToUse = parseFloat((entry.item.price * 0.3).toFixed(2));
+        }
+
+        return {
+          id: entry.item._id,
+          name: entry.item.name,
+          price: priceToUse,
+          quantity: entry.quantity,
+        };
+      });
 
       console.log("=== PAYMONGO PAYLOAD ===");
       console.log("Items payload for PayMongo:", itemsPayload);
@@ -802,6 +925,100 @@ const CheckoutPage = () => {
                 </Card>
               )}
 
+              {/* Payment Type Selection for Customized Items */}
+              {hasCustomizedItems() && (
+                <Card className="border-0 shadow-sm mb-4">
+                  <Card.Header className="bg-white border-bottom">
+                    <div className="d-flex align-items-center">
+                      <div
+                        className="bg-warning text-white rounded-circle d-flex align-items-center justify-content-center me-3"
+                        style={{ width: "32px", height: "32px" }}
+                      >
+                        <span className="fw-bold">{deliveryOption === "pickup" ? "3" : "4"}</span>
+                      </div>
+                      <h5 className="mb-0 fw-semibold">
+                        <BsGear className="me-2 text-warning" />
+                        Payment Options for Customized Items
+                      </h5>
+                    </div>
+                  </Card.Header>
+                  <Card.Body className="p-4">
+                    <Row className="g-3">
+                      <Col md={6}>
+                        <Card
+                          className={`cursor-pointer border-2 ${paymentType === "down_payment" ? "border-info bg-info bg-opacity-10" : "border-light"
+                            }`}
+                          onClick={() => {
+                            console.log("💳 [paymentType] Selected down payment")
+                            setPaymentType("down_payment")
+                          }}
+                        >
+                          <Card.Body className="text-center p-4">
+                            <div className="bg-info bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3">
+                              <BsCurrencyDollar className="text-info" size={24} />
+                            </div>
+                            <h6 className="fw-bold mb-2">Down Payment (30%)</h6>
+                            <p className="text-muted small mb-3">
+                              Pay 30% now for customized items + full price for normal items
+                            </p>
+                            <div className="d-flex justify-content-between align-items-center">
+                              <small className="text-muted">
+                                <BsGear className="me-1" />
+                                Non-refundable
+                              </small>
+                              <Badge bg="info">
+                                ₱{hasCustomizedItems() ? getActualPaymentAmount().toLocaleString() : "0"}
+                              </Badge>
+                            </div>
+                            {paymentType === "down_payment" && (
+                              <Alert variant="info" className="mt-3 mb-0 small">
+                                <BsInfoCircle className="me-1" />
+                                You'll pay the remaining 70% before delivery/pickup
+                              </Alert>
+                            )}
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                      <Col md={6}>
+                        <Card
+                          className={`cursor-pointer border-2 ${paymentType === "full_payment" ? "border-success bg-success bg-opacity-10" : "border-light"
+                            }`}
+                          onClick={() => {
+                            console.log("💸 [paymentType] Selected full payment")
+                            setPaymentType("full_payment")
+                          }}
+                        >
+                          <Card.Body className="text-center p-4">
+                            <div className="bg-success bg-opacity-10 rounded-circle d-inline-flex p-3 mb-3">
+                              <BsCheckCircle className="text-success" size={24} />
+                            </div>
+                            <h6 className="fw-bold mb-2">Pay in Full</h6>
+                            <p className="text-muted small mb-3">
+                              Pay the complete amount now for all items
+                            </p>
+                            <div className="d-flex justify-content-between align-items-center">
+                              <small className="text-muted">
+                                <BsCheckCircle className="me-1" />
+                                Complete
+                              </small>
+                              <Badge bg="success">
+                                ₱{total.toLocaleString()}
+                              </Badge>
+                            </div>
+                            {paymentType === "full_payment" && (
+                              <Alert variant="success" className="mt-3 mb-0 small">
+                                <BsCheckCircle className="me-1" />
+                                Full payment completed - no additional payments needed
+                              </Alert>
+                            )}
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                    </Row>
+                  </Card.Body>
+                </Card>
+              )}
+
               {/* Payment Method */}
               <Card className="border-0 shadow-sm mb-4">
                 <Card.Header className="bg-white border-bottom">
@@ -810,7 +1027,7 @@ const CheckoutPage = () => {
                       className="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3"
                       style={{ width: "32px", height: "32px" }}
                     >
-                      <span className="fw-bold">{deliveryOption === "pickup" ? "3" : "4"}</span>
+                      <span className="fw-bold">{hasCustomizedItems() ? (deliveryOption === "pickup" ? "4" : "5") : (deliveryOption === "pickup" ? "3" : "4")}</span>
                     </div>
                     <h5 className="mb-0 fw-semibold">Payment Method</h5>
                   </div>
@@ -884,7 +1101,15 @@ const CheckoutPage = () => {
                           style={{ width: "80px", height: "80px", objectFit: "cover" }}
                         />
                         <div className="ms-3 flex-grow-1">
-                          <h6 className="fw-bold mb-1">{entry.item.name}</h6>
+                          <div className="d-flex align-items-center gap-2 mb-1">
+                            <h6 className="fw-bold mb-0">{entry.item.name}</h6>
+                            {entry.item.is_customizable && (
+                              <Badge bg="warning" text="dark" className="small">
+                                <BsGear className="me-1" />
+                                Customized
+                              </Badge>
+                            )}
+                          </div>
                           <div className="d-flex align-items-center gap-3">
                             <small className="text-muted">Qty: {entry.quantity}</small>
                             <small className="text-muted">₱{entry.item.price.toLocaleString()} each</small>
@@ -908,10 +1133,52 @@ const CheckoutPage = () => {
                     <h5 className="mb-0 fw-bold">Order Summary</h5>
                   </Card.Header>
                   <Card.Body className="p-4">
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-                      <span>Subtotal ({selectedItems.length} items)</span>
-                      <span className="fw-medium">₱{total.toLocaleString()}</span>
-                    </div>
+                    {/* Show different subtotal based on payment type */}
+                    {hasCustomizedItems() && paymentType === "down_payment" ? (
+                      <>
+                        <div className="d-flex justify-content-between align-items-center mb-2">
+                          <span>Items Subtotal ({selectedItems.length} items)</span>
+                          <span className="fw-medium">₱{total.toLocaleString()}</span>
+                        </div>
+                        <div className="bg-light p-3 rounded mb-3">
+                          <h6 className="fw-bold mb-2 text-warning">
+                            <BsGear className="me-1" />
+                            Down Payment Breakdown
+                          </h6>
+                          <div className="small">
+                            {(() => {
+                              const amounts = calculatePaymentAmounts()
+                              return (
+                                <>
+                                  <div className="d-flex justify-content-between mb-1">
+                                    <span>• Customized items (30%):</span>
+                                    <span>₱{(amounts.customizedTotal * 0.3).toLocaleString()}</span>
+                                  </div>
+                                  <div className="d-flex justify-content-between mb-2">
+                                    <span>• Normal items (100%):</span>
+                                    <span>₱{amounts.normalTotal.toLocaleString()}</span>
+                                  </div>
+                                  <div className="d-flex justify-content-between text-info fw-bold border-top pt-2">
+                                    <span>Current Payment:</span>
+                                    <span>₱{getActualPaymentAmount().toLocaleString()}</span>
+                                  </div>
+                                  <div className="d-flex justify-content-between text-muted mt-1">
+                                    <span>Remaining (70% of custom):</span>
+                                    <span>₱{amounts.remainingBalance.toLocaleString()}</span>
+                                  </div>
+                                </>
+                              )
+                            })()}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <span>Subtotal ({selectedItems.length} items)</span>
+                        <span className="fw-medium">₱{total.toLocaleString()}</span>
+                      </div>
+                    )}
+
                     <div className="d-flex justify-content-between align-items-center mb-3">
                       <span>
                         <BsTruck className="me-1 text-muted" />
@@ -921,7 +1188,9 @@ const CheckoutPage = () => {
                     </div>
                     <hr />
                     <div className="d-flex justify-content-between align-items-center mb-4">
-                      <span className="fw-bold fs-5">Total</span>
+                      <span className="fw-bold fs-5">
+                        {hasCustomizedItems() && paymentType === "down_payment" ? "Amount to Pay Now" : "Total Amount"}
+                      </span>
                       <span className="fw-bold fs-5 text-primary">₱{grandTotal.toLocaleString()}</span>
                     </div>
 

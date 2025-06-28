@@ -48,6 +48,7 @@ import {
   BsShare,
   BsCartPlus,
   BsGear,
+  BsCamera,
 } from "react-icons/bs"
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
@@ -60,8 +61,163 @@ const OrderDetail = () => {
   const [error, setError] = useState(null)
   const [orderProgress, setOrderProgress] = useState(0)
   const [refundLoading, setRefundLoading] = useState(false)
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState(false)
 
   const userRole = localStorage.getItem("role")
+
+  // Helper function to check if order has customized items
+  const hasCustomizedItems = (order) => {
+    console.log("🔍 [hasCustomizedItems] Checking if order has customized items")
+    console.log("📝 Order items:", order?.items)
+
+    const hasCustomized = order?.items?.some(item => {
+      const isCustomized = item.item?.is_customizable || false
+      console.log(`📋 Item ${item.item?.name}: is_customizable = ${isCustomized}`)
+      return isCustomized
+    }) || false
+
+    console.log("✅ Has customized items:", hasCustomized)
+    return hasCustomized
+  }
+
+  // Helper function to calculate payment amounts for mixed cart
+  const calculatePaymentAmounts = (order) => {
+    console.log("💰 [calculatePaymentAmounts] Calculating payment amounts for order")
+    console.log("📋 Order items:", order?.items)
+
+    if (!order?.items) {
+      console.log("❌ No items found in order")
+      return { customizedTotal: 0, normalTotal: 0, downPaymentAmount: 0, remainingBalance: 0 }
+    }
+
+    let customizedTotal = 0
+    let normalTotal = 0
+
+    order.items.forEach(item => {
+      const itemTotal = (item.price || 0) * item.quantity
+      const isCustomized = item.item?.is_customizable || false
+
+      console.log(`📦 Item: ${item.item?.name}`)
+      console.log(`💵 Price: ₱${item.price}, Quantity: ${item.quantity}, Total: ₱${itemTotal}`)
+      console.log(`🔧 Is Customized: ${isCustomized}`)
+
+      if (isCustomized) {
+        customizedTotal += itemTotal
+        console.log(`➕ Added to customized total: ₱${itemTotal}`)
+      } else {
+        normalTotal += itemTotal
+        console.log(`➕ Added to normal total: ₱${itemTotal}`)
+      }
+    })
+
+    // Down payment = (customized total * 30%) + normal items total
+    const downPaymentAmount = (customizedTotal * 0.3) + normalTotal
+    // Remaining balance = customized total * 70%
+    const remainingBalance = customizedTotal * 0.7
+
+    console.log("📊 Payment Calculation Results:")
+    console.log(`🔧 Customized Items Total: ₱${customizedTotal.toFixed(2)}`)
+    console.log(`📦 Normal Items Total: ₱${normalTotal.toFixed(2)}`)
+    console.log(`💳 Down Payment Amount: ₱${downPaymentAmount.toFixed(2)}`)
+    console.log(`💰 Remaining Balance: ₱${remainingBalance.toFixed(2)}`)
+
+    return { customizedTotal, normalTotal, downPaymentAmount, remainingBalance }
+  }
+
+  // Helper function to calculate payment status
+  const getPaymentStatus = (order) => {
+    console.log("📊 [getPaymentStatus] Calculating payment status")
+    console.log("💰 Order amount:", order?.amount)
+    console.log("💳 Paid amount:", order?.paidAmount)
+
+    if (!order.amount) {
+      console.log("❌ No order amount found")
+      return "Unknown"
+    }
+
+    const totalAmount = order.amount
+    const paidAmount = order.paidAmount || 0
+
+    // Check if order has customized items
+    const hasCustomized = hasCustomizedItems(order)
+    console.log("🔧 Order has customized items:", hasCustomized)
+
+    if (hasCustomized) {
+      // For customized items, use our special calculation
+      const { downPaymentAmount } = calculatePaymentAmounts(order)
+      const fullPaymentThreshold = totalAmount * 0.99 // Allow for small rounding differences
+
+      console.log("🧮 Customized order payment check:")
+      console.log(`💳 Paid: ₱${paidAmount.toFixed(2)}`)
+      console.log(`💰 Down Payment Threshold: ₱${downPaymentAmount.toFixed(2)}`)
+      console.log(`✅ Full Payment Threshold: ₱${fullPaymentThreshold.toFixed(2)}`)
+
+      if (paidAmount >= fullPaymentThreshold) {
+        console.log("✅ Status: Fully Paid")
+        return "Fully Paid"
+      } else if (paidAmount >= (downPaymentAmount * 0.99)) { // Allow small rounding differences
+        console.log("💳 Status: Downpaid")
+        return "Downpaid"
+      } else if (paidAmount > 0) {
+        console.log("⚠️ Status: Partial Payment")
+        return "Partial Payment"
+      } else {
+        console.log("❌ Status: Unpaid")
+        return "Unpaid"
+      }
+    } else {
+      // For normal orders, use simple calculation
+      const fullPaymentThreshold = totalAmount * 0.99
+
+      console.log("📦 Normal order payment check:")
+      console.log(`💳 Paid: ₱${paidAmount.toFixed(2)}`)
+      console.log(`✅ Full Payment Threshold: ₱${fullPaymentThreshold.toFixed(2)}`)
+
+      if (paidAmount >= fullPaymentThreshold) {
+        console.log("✅ Status: Fully Paid")
+        return "Fully Paid"
+      } else if (paidAmount > 0) {
+        console.log("⚠️ Status: Partial Payment")
+        return "Partial Payment"
+      } else {
+        console.log("❌ Status: Unpaid")
+        return "Unpaid"
+      }
+    }
+  }
+
+  // Helper function to get remaining balance
+  const getRemainingBalance = (order) => {
+    console.log("💰 [getRemainingBalance] Calculating remaining balance")
+
+    if (!order.amount) {
+      console.log("❌ No order amount found")
+      return 0
+    }
+
+    const paidAmount = order.paidAmount || 0
+    const hasCustomized = hasCustomizedItems(order)
+
+    console.log("💳 Paid amount:", paidAmount)
+    console.log("🔧 Has customized items:", hasCustomized)
+
+    if (hasCustomized) {
+      // For customized orders, remaining balance is only 70% of customized items
+      const { remainingBalance } = calculatePaymentAmounts(order)
+      const actualRemaining = Math.max(0, remainingBalance - Math.max(0, paidAmount - (order.amount - remainingBalance)))
+
+      console.log("🧮 Customized order remaining balance:")
+      console.log(`💰 Calculated remaining: ₱${remainingBalance.toFixed(2)}`)
+      console.log(`💳 Actual remaining: ₱${actualRemaining.toFixed(2)}`)
+
+      return actualRemaining
+    } else {
+      // For normal orders, simple calculation
+      const remaining = Math.max(0, order.amount - paidAmount)
+      console.log("📦 Normal order remaining balance: ₱", remaining.toFixed(2))
+      return remaining
+    }
+  }
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -82,23 +238,30 @@ const OrderDetail = () => {
         // Calculate order progress based on status
         const status = response.data.status
         switch (status) {
+          case "Pending":
+            setOrderProgress(10)
+            break
           case "On Process":
-            setOrderProgress(50)
+            setOrderProgress(40)
+            break
+          case "Ready for Pickup":
+            setOrderProgress(60)
             break
           case "Delivered":
-            setOrderProgress(1000)
+          case "Picked Up":
+            setOrderProgress(100)
             break
           case "Requesting for Refund":
-            setOrderProgress(0)
+            setOrderProgress(25)
             break
           case "Refunded":
-            setOrderProgress(0)
+            setOrderProgress(100)
             break
           case "Cancelled":
             setOrderProgress(0)
             break
           default:
-            setOrderProgress(25)
+            setOrderProgress(10)
         }
 
       } catch (err) {
@@ -121,17 +284,26 @@ const OrderDetail = () => {
     }
   }, [order])
 
+
+
   const getStatusVariant = (status) => {
+    console.log("🎨 [getStatusVariant] Getting badge variant for status:", status);
     switch (status) {
-      case "Delivered":
-      case "Refunded":
-        return "success"
+      case "Pending":
+        return "secondary"
       case "On Process":
         return "primary"
+      case "Ready for Pickup":
+        return "warning"
+      case "Delivered":
+      case "Picked Up":
+        return "success"
       case "Requesting for Refund":
         return "info"
-      case "Cancelled":
+      case "Refunded":
         return "danger"
+      case "Cancelled":
+        return "dark"
       default:
         return "secondary"
     }
@@ -140,14 +312,18 @@ const OrderDetail = () => {
   const getStatusIcon = (status) => {
     switch (status) {
       case "Delivered":
+      case "Picked Up":
       case "Refunded":
         return <BsCheckCircle />
       case "On Process":
+      case "Ready for Pickup":
         return <BsClock />
       case "Requesting for Refund":
         return <BsExclamationTriangle />
       case "Cancelled":
         return <BsXCircle />
+      case "Pending":
+        return <BsInfoCircle />
       default:
         return <BsInfoCircle />
     }
@@ -156,9 +332,11 @@ const OrderDetail = () => {
   const getProgressVariant = (status) => {
     switch (status) {
       case "Delivered":
+      case "Picked Up":
       case "Refunded":
         return "success"
       case "On Process":
+      case "Ready for Pickup":
         return "primary"
       case "Requesting for Refund":
         return "info"
@@ -181,6 +359,70 @@ const OrderDetail = () => {
 
   const handlePrintReceipt = () => {
     window.print()
+  }
+
+  const handlePayFullAmount = async () => {
+    console.log("💳 [handlePayFullAmount] Initiating full payment for customized order")
+    console.log("📋 Order ID:", order._id)
+    console.log("💰 Remaining balance:", getRemainingBalance(order))
+
+    if (!hasCustomizedItems(order)) {
+      console.log("❌ Order does not have customized items")
+      alert("This feature is only available for customized orders.")
+      return
+    }
+
+    const remainingAmount = getRemainingBalance(order)
+    if (remainingAmount <= 0) {
+      console.log("❌ No remaining balance to pay")
+      alert("This order is already fully paid.")
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Complete payment for the remaining balance of ₱${remainingAmount.toLocaleString()}?`
+    )
+
+    if (!confirmed) {
+      console.log("🚫 User cancelled payment")
+      return
+    }
+
+    console.log("✅ User confirmed payment. Proceeding to PayMongo...")
+    setStatusUpdateLoading(true)
+
+    try {
+      // Call backend API to create PayMongo session for remaining amount
+      console.log("🔗 Creating PayMongo session for remaining payment...")
+      const response = await axios.post(
+        `${BACKEND_URL}/api/orders/${order._id}/complete-payment`,
+        {
+          amount: remainingAmount,
+          orderId: order._id
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      )
+
+      console.log("💳 PayMongo session created:", response.data)
+
+      if (response.data.checkout_url) {
+        console.log("🌐 Redirecting to PayMongo checkout...")
+        window.location.href = response.data.checkout_url
+      } else {
+        throw new Error("No checkout URL received from PayMongo")
+      }
+
+    } catch (error) {
+      console.error("❌ Error creating payment session:", error)
+      const errorMessage = error.response?.data?.message || "Failed to create payment session. Please try again."
+      alert(errorMessage)
+    } finally {
+      setStatusUpdateLoading(false)
+    }
   }
 
   const handleRefundRequest = async () => {
@@ -461,7 +703,7 @@ const OrderDetail = () => {
               <Card.Header className="bg-white border-bottom">
                 <h5 className="mb-0 fw-bold">
                   <BsInfoCircle className="me-2 text-primary" />
-                  Order Status
+                  Order Status & Payment
                 </h5>
               </Card.Header>
               <Card.Body>
@@ -472,14 +714,25 @@ const OrderDetail = () => {
                         {getStatusIcon(order.status)}
                         <span className="ms-1 text-capitalize">{order.status}</span>
                       </Badge>
-                      <span className="text-muted">
-                        {order.status === "Delivered" && "Your order has been delivered successfully!"}
-                        {order.status === "On Process" && "Your order is being prepared for shipment."}
-                        {order.status === "Requesting for Refund" && "Your refund request is being processed."}
-                        {order.status === "Refunded" && "Your refund has been processed."}
-                        {order.status === "Cancelled" && "This order has been cancelled."}
-                      </span>
+                      <Badge bg="outline-secondary" className="me-3">
+                        {order.paymentStatus || getPaymentStatus(order)}
+                      </Badge>
+                      <Badge bg={order.deliveryOption === 'shipping' ? 'primary' : 'success'}>
+                        {order.deliveryOption === 'shipping' ? 'Delivery' : 'Pickup'}
+                      </Badge>
                     </div>
+                    <p className="text-muted mb-2">
+                      {order.status === "Pending" && "Your order is pending payment confirmation."}
+                      {order.status === "On Process" && (order.deliveryOption === 'shipping' ? "Your order is being prepared for shipment." : "Your order is being prepared.")}
+                      {order.status === "Ready for Pickup" && "Your order is ready for pickup at our store."}
+                      {order.status === "Delivered" && "Your order has been delivered successfully!"}
+                      {order.status === "Picked Up" && "Your order has been picked up successfully!"}
+                      {order.status === "Requesting for Refund" && "Your refund request is being processed."}
+                      {order.status === "Refunded" && "Your refund has been processed."}
+                      {order.status === "Cancelled" && "This order has been cancelled."}
+                      {!order.status && "Order status unknown."}
+                    </p>
+
                     <ProgressBar
                       now={orderProgress}
                       variant={getProgressVariant(order.status)}
@@ -488,14 +741,75 @@ const OrderDetail = () => {
                     />
                     <div className="d-flex justify-content-between small text-muted">
                       <span>Order Placed</span>
-                      <span>Processing</span>
-                      <span>Delivered</span>
-                      <span>Completed</span>
+                      {order.deliveryOption === 'shipping' ? (
+                        <>
+                          <span>Processing</span>
+                          <span>Delivered</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Processing</span>
+                          <span>Ready</span>
+                          <span>Picked Up</span>
+                        </>
+                      )}
                     </div>
                   </Col>
                   <Col md={4} className="text-end">
-                    {order.status === "Delivered" && (
-                      <Button variant="outline-primary" size="sm" onClick={handleReorder}>
+                    {/* Payment Information */}
+                    <div className="bg-light p-3 rounded">
+                      <h6 className="fw-bold mb-2">Payment Details</h6>
+                      <div className="small">
+                        <div className="d-flex justify-content-between">
+                          <span>Total Amount:</span>
+                          <span className="fw-bold">₱{order.amount?.toLocaleString()}</span>
+                        </div>
+                        <div className="d-flex justify-content-between">
+                          <span>Down Payment Paid:</span>
+                          <span className="text-success">₱{(order.downPayment || 0).toLocaleString()}</span>
+                        </div>
+                        {order.balance > 0 && (
+                          <div className="d-flex justify-content-between">
+                            <span>Remaining Balance:</span>
+                            <span className="text-warning fw-bold">₱{order.balance?.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <hr className="my-2" />
+                        <div className="d-flex justify-content-between fw-bold">
+                          <span>Payment Status:</span>
+                          <span className={order.paymentStatus === 'Fully Paid' ? 'text-success' :
+                            order.paymentStatus === 'Pending Downpayment' ? 'text-info' : 'text-warning'}>
+                            {order.paymentStatus || getPaymentStatus(order)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pay Full Amount Button for Customized Orders */}
+                    {hasCustomizedItems(order) && getPaymentStatus(order) === 'Downpaid' && getRemainingBalance(order) > 0 && (
+                      <Button
+                        variant="success"
+                        size="sm"
+                        onClick={() => handlePayFullAmount()}
+                        className="mt-2 w-100"
+                        disabled={statusUpdateLoading}
+                      >
+                        {statusUpdateLoading ? (
+                          <>
+                            <Spinner as="span" animation="border" size="sm" className="me-1" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <BsCurrencyDollar className="me-1" />
+                            Pay Remaining ₱{getRemainingBalance(order).toLocaleString()}
+                          </>
+                        )}
+                      </Button>
+                    )}
+
+                    {(order.status === "Delivered" || order.status === "Picked Up") && (
+                      <Button variant="outline-primary" size="sm" onClick={handleReorder} className="mt-2">
                         <BsCartPlus className="me-1" />
                         Reorder Items
                       </Button>
@@ -507,7 +821,7 @@ const OrderDetail = () => {
                         onClick={handleRefundRequest}
                         disabled={refundLoading}
                         title={getRefundButtonTooltip()}
-                        className="ms-2"
+                        className="mt-2 ms-2"
                       >
                         {refundLoading ? (
                           <>
@@ -528,7 +842,7 @@ const OrderDetail = () => {
                         size="sm"
                         disabled
                         title={getRefundButtonTooltip()}
-                        className="ms-2"
+                        className="mt-2 ms-2"
                       >
                         <BsExclamationTriangle className="me-1" />
                         Request Refund
@@ -536,34 +850,29 @@ const OrderDetail = () => {
                     )}
 
                     {/* Debug Info - Remove in production */}
-                    {process.env.NODE_ENV === 'development' && (
-                      <div className="mt-2 small text-muted">
-                        <div>Status: {order.status}</div>
-                        <div>Role: {userRole}</div>
-                        <div>Can Refund: {canRequestRefund() ? 'Yes' : 'No'}</div>
-                        <div>Has Customized: {order.items?.some(item => item.item?.is_customizable) ? 'Yes' : 'No'}</div>
-                      </div>
-                    )}
+
                   </Col>
                 </Row>
 
                 {/* Delivery Proof Section */}
-                {order.status === "Delivered" && order.deliveryProof && (
+                {((order.status === "Delivered" || order.status === "Picked Up") && order.deliveryProof) && (
                   <div className="mt-4 p-3 bg-light rounded">
                     <div className="d-flex align-items-center mb-3">
                       <BsCheckCircle className="text-success me-2" size={20} />
-                      <h6 className="mb-0 fw-bold text-success">Delivery Proof Uploaded</h6>
+                      <h6 className="mb-0 fw-bold text-success">
+                        {order.status === "Delivered" ? "Delivery Proof" : "Pickup Proof"} Uploaded
+                      </h6>
                     </div>
                     <div className="text-center">
                       <img
                         src={order.deliveryProof}
-                        alt="Delivery Proof"
+                        alt={`${order.status} Proof`}
                         className="img-fluid rounded shadow-sm"
                         style={{ maxHeight: "300px", maxWidth: "100%" }}
                       />
                       <div className="mt-2">
                         <small className="text-muted">
-                          Delivery proof uploaded on: {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : 'N/A'}
+                          Proof uploaded on: {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : 'N/A'}
                         </small>
                       </div>
                     </div>
@@ -644,6 +953,7 @@ const OrderDetail = () => {
                     <thead className="table-light">
                       <tr>
                         <th>Product</th>
+                        <th>Dimensions (H×W×L)</th>
                         <th>Price</th>
                         <th>Quantity</th>
                         <th>Subtotal</th>
@@ -680,18 +990,39 @@ const OrderDetail = () => {
                                   </div>
                                 )}
                                 {item.item?.is_customizable && (
-                                  <div>
+                                  <div className="d-flex align-items-center gap-2">
                                     <Badge bg="info" text="dark" className="mt-1">
                                       <BsGear className="me-1" />
                                       Customized
+                                    </Badge>
+                                    <Badge bg="warning" text="dark" className="mt-1" title="Delivery proof required">
+                                      <BsCamera className="me-1" />
+                                      Proof Required
                                     </Badge>
                                   </div>
                                 )}
                               </div>
                             </div>
                           </td>
+                          <td className="font-monospace">
+                            {item.customH && item.customW && item.customL
+                              ? `${item.customH} × ${item.customW} × ${item.customL}`
+                              : "-"}
+                          </td>
                           <td>
-                            <span className="fw-bold text-primary">₱{item.price?.toFixed(2)}</span>
+                            {(() => {
+                              const unitPrice = item.price ?? 0;
+                              return (
+                                <div className="d-flex align-items-center gap-2">
+                                  <span className="fw-bold text-primary">₱{unitPrice.toFixed(2)}</span>
+                                  {item.item?.is_customizable && (
+                                    <Badge bg="warning" text="dark" className="small ms-1">
+                                      Custom
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td>
                             <Badge bg="light" text="dark" className="fs-6">
@@ -699,7 +1030,9 @@ const OrderDetail = () => {
                             </Badge>
                           </td>
                           <td>
-                            <span className="fw-bold">₱{((item.price || 0) * item.quantity).toFixed(2)}</span>
+                            <span className="fw-bold">
+                              ₱{(((item.price ?? 0) * item.quantity).toFixed(2))}
+                            </span>
                           </td>
                           <td>
                             <div className="d-flex gap-1">
@@ -749,7 +1082,9 @@ const OrderDetail = () => {
                         <BsTruck className="me-1 text-success" />
                         Shipping
                       </span>
-                      <span className="text-success fw-bold">FREE</span>
+                      <span className={order.shippingFee > 0 ? "fw-bold" : "text-success fw-bold"}>
+                        {order.shippingFee > 0 ? `₱${order.shippingFee.toFixed(2)}` : "FREE"}
+                      </span>
                     </ListGroup.Item>
                     <ListGroup.Item className="d-flex justify-content-between align-items-center px-0 py-3">
                       <span>Tax</span>
@@ -757,7 +1092,7 @@ const OrderDetail = () => {
                     </ListGroup.Item>
                     <ListGroup.Item className="d-flex justify-content-between align-items-center px-0 py-3 border-top">
                       <span className="fw-bold fs-5">Total</span>
-                      <span className="fw-bold fs-4 text-primary">₱{order.amount?.toFixed(2)}</span>
+                      <span className="fw-bold fs-4 text-primary">₱{(order.amount + (order.shippingFee || 0))?.toFixed(2)}</span>
                     </ListGroup.Item>
                   </ListGroup>
                 </Card.Body>

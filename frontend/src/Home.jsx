@@ -162,12 +162,22 @@ const Home = () => {
     setTimeout(() => {
       navigate("/checkout", {
         state: {
-          selectedItems: selectedItems.map((entry) => ({
-            item: entry.item,
-            quantity: entry.quantity,
-            // *** IMPORTANT: Add the customizations object here ***
-            customizations: entry.customizations || null, // This is the new field we'll use in the backend
-          })),
+          selectedItems: selectedItems.map((entry) => {
+            const clonedItem = { ...entry.item };
+            if (entry.customizations?.finalPrice) {
+              clonedItem.price = entry.customizations.finalPrice;
+            }
+            if (entry.customH) clonedItem.customH = entry.customH;
+            if (entry.customW) clonedItem.customW = entry.customW;
+            if (entry.customL) clonedItem.customL = entry.customL;
+            if (entry.legsFrameMaterial) clonedItem.legsFrameMaterial = entry.legsFrameMaterial;
+            if (entry.tabletopMaterial) clonedItem.tabletopMaterial = entry.tabletopMaterial;
+            return {
+              item: clonedItem,
+              quantity: entry.quantity,
+              customizations: entry.customizations || null,
+            };
+          }),
         },
       })
       setProcessingCheckout(false)
@@ -406,15 +416,20 @@ const Home = () => {
                             <Col>
                               <div>
                                 <h5 className="mb-1 fw-bold">{entry.item.name}</h5>
-                                <div className="d-flex align-items-center gap-2 mb-2">
-                                  <span className="text-muted small">Unit Price:</span>
-                                  <span className="fw-bold text-primary">₱{entry.item.price.toFixed(2)}</span>
-                                  {entry.item.originalPrice && entry.item.originalPrice > entry.item.price && (
-                                    <span className="text-muted text-decoration-line-through small">
-                                      ₱{entry.item.originalPrice.toFixed(2)}
-                                    </span>
-                                  )}
-                                </div>
+                                {(() => {
+                                  const unitPrice = entry.customizations?.finalPrice ?? entry.customPrice ?? entry.item.price;
+                                  return (
+                                    <div className="d-flex align-items-center gap-2 mb-2">
+                                      <span className="text-muted small">Unit Price:</span>
+                                      <span className="fw-bold text-primary">₱{unitPrice.toFixed(2)}</span>
+                                      {entry.customizations && (
+                                        <Badge bg="warning" text="dark" className="small ms-2">
+                                          Custom
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                                 <div className="d-flex align-items-center gap-2">
                                   <Badge bg="light" text="dark" className="small">
                                     Stock: {entry.item.stock}
@@ -465,7 +480,10 @@ const Home = () => {
                             {/* Subtotal */}
                             <Col md={2} className="text-end">
                               <div className="fw-bold fs-5 text-primary">
-                                ₱{(entry.item.price * entry.quantity).toFixed(2)}
+                                {(() => {
+                                  const unitPrice = entry.customizations?.finalPrice ?? entry.customPrice ?? entry.item.price;
+                                  return `₱${(unitPrice * entry.quantity).toFixed(2)}`;
+                                })()}
                               </div>
                               {entry.item.originalPrice && entry.item.originalPrice > entry.item.price && (
                                 <div className="small text-success">

@@ -61,6 +61,7 @@ import {
     BsCheckCircle,
 } from "react-icons/bs"
 import ChatPage from "./ChatPage.jsx"
+import LogsView from "./LogsView.jsx"
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -134,6 +135,12 @@ const AdminPage = () => {
     // Desktop sidebar collapse state
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
+    // -------- Inactive toggles --------
+    const [showInactiveUsers, setShowInactiveUsers] = useState(false)
+    const [showInactiveItems, setShowInactiveItems] = useState(false)
+    const [showInactiveCategories, setShowInactiveCategories] = useState(false)
+    const [showInactiveTypes, setShowInactiveTypes] = useState(false)
+
     // Centralized API Calls
     const fetchData = async () => {
         setLoading(true)
@@ -142,13 +149,21 @@ const AdminPage = () => {
         try {
             console.log("=== FETCHING ADMIN DASHBOARD DATA ===")
             console.log("Token available:", !!token)
+            console.log("Inactive flags:", { showInactiveUsers, showInactiveItems, showInactiveCategories, showInactiveTypes })
+
+            const usersUrl = `${BACKEND_URL}/api/allusers${showInactiveUsers ? '?showOnlyInactive=true' : ''}`
+            const itemsUrl = `${BACKEND_URL}/api/items${showInactiveItems ? '?showOnlyInactive=true' : ''}`
+            const catsUrl = `${BACKEND_URL}/api/categories${showInactiveCategories ? '?showOnlyInactive=true' : ''}`
+            const typesUrl = `${BACKEND_URL}/api/furnituretypes${showInactiveTypes ? '?showOnlyInactive=true' : ''}`
+
+            console.log("API URLs:", { usersUrl, itemsUrl, catsUrl, typesUrl })
 
             const [usersRes, itemsRes, ordersRes, categoriesRes, furnitureTypesRes] = await Promise.all([
-                axios.get(`${BACKEND_URL}/api/allusers`, { headers }),
-                axios.get(`${BACKEND_URL}/api/items`),
+                axios.get(usersUrl, { headers }),
+                axios.get(itemsUrl),
                 axios.get(`${BACKEND_URL}/api/orders`, { headers }),
-                axios.get(`${BACKEND_URL}/api/categories`),
-                axios.get(`${BACKEND_URL}/api/furnituretypes`),
+                axios.get(catsUrl),
+                axios.get(typesUrl),
             ])
 
             console.log("=== API RESPONSES RECEIVED ===")
@@ -203,6 +218,13 @@ const AdminPage = () => {
             fetchData()
         }
     }, [role, navigate])
+
+    // Add useEffect to refetch data when inactive state flags change
+    useEffect(() => {
+        if (role === "admin") {
+            fetchData()
+        }
+    }, [showInactiveUsers, showInactiveItems, showInactiveCategories, showInactiveTypes, role])
 
     // Logout handler
     const handleLogout = () => {
@@ -511,29 +533,23 @@ const AdminPage = () => {
     const getStatusVariant = (status) => {
         console.log("🎨 [getStatusVariant] Getting badge variant for status:", status);
         switch (status) {
+            case "Pending":
+                return "secondary"
             case "On Process":
-                console.log("🎨 [getStatusVariant] Returning 'primary' for On Process");
                 return "primary"
             case "Ready for Pickup":
-                console.log("🎨 [getStatusVariant] Returning 'warning' for Ready for Pickup");
                 return "warning"
             case "Delivered":
-                console.log("🎨 [getStatusVariant] Returning 'success' for Delivered");
                 return "success"
             case "Picked Up":
-                console.log("🎨 [getStatusVariant] Returning 'success' for Picked Up");
                 return "success"
             case "Requesting for Refund":
-                console.log("🎨 [getStatusVariant] Returning 'info' for Requesting for Refund");
                 return "info"
             case "Refunded":
-                console.log("🎨 [getStatusVariant] Returning 'danger' for Refunded");
                 return "danger"
-            case "Completed":
-                console.log("🎨 [getStatusVariant] Returning 'success' for Completed");
-                return "success"
+            case "Cancelled":
+                return "dark"
             default:
-                console.log("🎨 [getStatusVariant] Returning 'secondary' for unknown status:", status);
                 return "secondary"
         }
     }
@@ -549,41 +565,209 @@ const AdminPage = () => {
             console.log("🔄 [handleStatusChange] STARTING status change process");
             console.log("🔄 [handleStatusChange] Order ID:", orderId);
             console.log("🔄 [handleStatusChange] New Status:", newStatus);
-            
+
             if (!window.confirm(`Change status to "${newStatus}"?`)) {
                 console.log("❌ [handleStatusChange] User cancelled status change");
                 return;
             }
-            
-            console.log("✅ [handleStatusChange] User confirmed status change");
-            
+
             try {
                 const token = localStorage.getItem("token");
-                console.log("🔑 [handleStatusChange] Token retrieved:", token ? "Token exists" : "No token found");
-                
                 console.log("📡 [handleStatusChange] Sending PUT request to:", `${BACKEND_URL}/api/orders/${orderId}/status`);
-                console.log("📡 [handleStatusChange] Request payload:", { status: newStatus });
-                
-                const newStatusRes = await axios.put(
-                    `${BACKEND_URL}/api/orders/${orderId}/status`, 
-                    { status: newStatus }, 
+
+                const response = await axios.put(
+                    `${BACKEND_URL}/api/orders/${orderId}/status`,
+                    { status: newStatus },
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
-                
+
                 console.log("✅ [handleStatusChange] Status update successful!");
-                console.log("📋 [handleStatusChange] Response data:", newStatusRes.data);
-                
-                // Refresh the data to show updated status
-                console.log("🔄 [handleStatusChange] Refreshing order data...");
-                fetchData();
-                
+                fetchData(); // Refresh the data
+
             } catch (err) {
                 console.error("❌ [handleStatusChange] Error updating order status:", err);
-                console.error("❌ [handleStatusChange] Error response:", err.response?.data);
-                console.error("❌ [handleStatusChange] Error status:", err.response?.status);
                 alert("Failed to update status.");
             }
         }
+
+        // Get available status options based on current status and delivery option
+        const getAvailableStatuses = (order) => {
+            const currentStatus = order.status;
+            const deliveryOption = order.deliveryOption;
+            const hasDeliveryProof = !!order.deliveryProof;
+
+            switch (currentStatus) {
+                case "Pending":
+                    return [
+                        { value: "Pending", label: "Pending" },
+                        { value: "Cancelled", label: "Cancelled" }
+                    ];
+
+                case "On Process":
+                    if (deliveryOption === 'shipping') {
+                        return [
+                            { value: "On Process", label: "On Process" },
+                            { value: "Delivered", label: "Delivered" },
+                            { value: "Cancelled", label: "Cancelled" }
+                        ];
+                    } else {
+                        return [
+                            { value: "On Process", label: "On Process" },
+                            { value: "Ready for Pickup", label: "Ready for Pickup" },
+                            { value: "Cancelled", label: "Cancelled" }
+                        ];
+                    }
+
+                case "Ready for Pickup":
+                    return [
+                        { value: "Ready for Pickup", label: "Ready for Pickup" },
+                        { value: "Picked Up", label: "Picked Up" },
+                        { value: "Cancelled", label: "Cancelled" }
+                    ];
+
+                case "Delivered":
+                case "Picked Up":
+                    return [
+                        { value: currentStatus, label: currentStatus },
+                        { value: "Refunded", label: "Refunded" }
+                    ];
+
+                case "Requesting for Refund":
+                    return [
+                        { value: "Requesting for Refund", label: "Requesting for Refund" },
+                        { value: "Refunded", label: "Refunded" },
+                        { value: "On Process", label: "Reject Refund - Back to Process" }
+                    ];
+
+                default:
+                    return [{ value: currentStatus, label: currentStatus }];
+            }
+        };
+
+        // Check if delivery proof can be uploaded
+        const canUploadDeliveryProof = (order) => {
+            const status = order.status;
+            const hasProof = !!order.deliveryProof;
+
+            // Can upload proof for these statuses and if no proof exists yet
+            return !hasProof && (
+                status === "On Process" ||
+                status === "Ready for Pickup" ||
+                status === "Delivered" ||
+                status === "Picked Up"
+            );
+        };
+
+        const renderOrderRow = (order) => {
+            const availableStatuses = getAvailableStatuses(order);
+            const canUploadProof = canUploadDeliveryProof(order);
+
+            return (
+                <tr key={order._id} className="border-bottom">
+                    <td className="py-3">
+                        <span className="font-monospace fw-medium">#{order._id.slice(-8)}</span>
+                    </td>
+                    <td className="py-3">
+                        <div className="small">
+                            {new Date(order.createdAt).toLocaleDateString()}
+                            <br />
+                            <span className="text-muted">{new Date(order.createdAt).toLocaleTimeString()}</span>
+                        </div>
+                    </td>
+                    <td className="py-3">
+                        <div>
+                            <div className="fw-medium">{order.user?.name || "N/A"}</div>
+                            <small className="text-muted">{order.user?.email}</small>
+                        </div>
+                    </td>
+                    <td className="py-3">
+                        <div className="small">
+                            {order.items?.map((item, idx) => (
+                                <div key={idx} className="mb-1">
+                                    <span className="fw-medium">{item.item?.name}</span>
+                                    {item.item?.is_customizable && (
+                                        <Badge bg="info" className="ms-1">
+                                            <BsGear className="me-1" />
+                                            Custom
+                                        </Badge>
+                                    )}
+                                    <span className="text-muted"> (×{item.quantity})</span>
+                                    {/* Show dimensions if present */}
+                                    {item.customH && item.customW && item.customL && (
+                                        <span className="d-block small text-muted font-monospace">
+                                            {`${item.customH} × ${item.customW} × ${item.customL}`}
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </td>
+                    <td className="py-3">
+                        <div>
+                            <span className="fw-bold fs-6">₱{order.amount.toLocaleString()}</span>
+                            {order.balance > 0 && (
+                                <div className="small text-warning">
+                                    Balance: ₱{order.balance.toLocaleString()}
+                                </div>
+                            )}
+                        </div>
+                    </td>
+                    <td className="py-3">
+                        <div className="d-flex flex-column gap-1">
+                            <Badge bg={getStatusVariant(order.status)} className="text-capitalize px-2 py-1">
+                                {order.status}
+                            </Badge>
+                            <Badge bg="outline-secondary" className="small">
+                                {order.paymentStatus}
+                            </Badge>
+                            <Badge bg={order.deliveryOption === 'shipping' ? 'primary' : 'success'} className="small">
+                                {order.deliveryOption === 'shipping' ? 'Delivery' : 'Pickup'}
+                            </Badge>
+                        </div>
+                    </td>
+                    <td className="py-3">
+                        <div className="d-flex gap-1 flex-wrap">
+                            <Form.Select
+                                size="sm"
+                                value={order.status}
+                                onChange={(e) => handleStatusChange(order._id, e.target.value)}
+                                style={{ minWidth: "140px" }}
+                            >
+                                {availableStatuses.map(status => (
+                                    <option key={status.value} value={status.value}>
+                                        {status.label}
+                                    </option>
+                                ))}
+                            </Form.Select>
+
+                            {canUploadProof && (
+                                <Button
+                                    size="sm"
+                                    variant="success"
+                                    onClick={() => handleUploadDeliveryProof(order)}
+                                    title="Upload Delivery Proof"
+                                >
+                                    📸
+                                </Button>
+                            )}
+
+                            {order.deliveryProof && (
+                                <Button
+                                    size="sm"
+                                    variant="outline-info"
+                                    onClick={() => window.open(order.deliveryProof, '_blank')}
+                                    title="View Delivery Proof"
+                                >
+                                    👁️
+                                </Button>
+                            )}
+                        </div>
+                    </td>
+                </tr>
+            );
+        };
+
+
 
         const handleUploadDeliveryProof = (order) => {
             setSelectedOrder(order)
@@ -701,6 +885,15 @@ const AdminPage = () => {
                                     More Filters
                                 </Button>
                             </Col>
+                            <Col lg={2}>
+                                <Button
+                                    variant={showInactiveItems ? "secondary" : "outline-secondary"}
+                                    className="w-100"
+                                    onClick={() => setShowInactiveItems((prev) => !prev)}
+                                >
+                                    {showInactiveItems ? "Hide Inactive" : "Show Inactive"}
+                                </Button>
+                            </Col>
                         </Row>
                     </Card.Body>
                 </Card>
@@ -710,11 +903,13 @@ const AdminPage = () => {
                         <div className="d-flex justify-content-between align-items-center">
                             <h5 className="mb-0 fw-bold">Orders ({filteredOrders.length})</h5>
                             <div className="d-flex gap-2">
-                                <Badge bg="warning">{orders.filter((o) => o.status === "On Process").length} On Process</Badge>
-                                <Badge bg="primary">{orders.filter((o) => o.status === "Delivered").length} Delivered</Badge>
-                                <Badge bg="success">{orders.filter((o) => o.status === "Requesting for Refund").length} Requesting for Refund</Badge>
+                                <Badge bg="secondary">{orders.filter((o) => o.status === "Pending").length} Pending</Badge>
+                                <Badge bg="primary">{orders.filter((o) => o.status === "On Process").length} On Process</Badge>
+                                <Badge bg="warning">{orders.filter((o) => o.status === "Ready for Pickup").length} Ready for Pickup</Badge>
+                                <Badge bg="success">{orders.filter((o) => o.status === "Delivered").length} Delivered</Badge>
+                                <Badge bg="success">{orders.filter((o) => o.status === "Picked Up").length} Picked Up</Badge>
+                                <Badge bg="info">{orders.filter((o) => o.status === "Requesting for Refund").length} Requesting Refund</Badge>
                                 <Badge bg="danger">{orders.filter((o) => o.status === "Refunded").length} Refunded</Badge>
-
                             </div>
                         </div>
                     </Card.Header>
@@ -727,97 +922,13 @@ const AdminPage = () => {
                                         <th className="border-0 fw-semibold">Date</th>
                                         <th className="border-0 fw-semibold">Customer</th>
                                         <th className="border-0 fw-semibold">Items</th>
-                                        <th className="border-0 fw-semibold">Total</th>
+                                        <th className="border-0 fw-semibold">Amount</th>
                                         <th className="border-0 fw-semibold">Status</th>
                                         <th className="border-0 fw-semibold">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {currentOrders.map((order) => (
-                                        <tr key={order._id} className="border-bottom">
-                                            <td className="py-3">
-                                                <span className="font-monospace fw-medium">#{order._id.slice(-8)}</span>
-                                            </td>
-                                            <td className="py-3">
-                                                <div className="small">
-                                                    {new Date(order.createdAt).toLocaleDateString()}
-                                                    <br />
-                                                    <span className="text-muted">{new Date(order.createdAt).toLocaleTimeString()}</span>
-                                                </div>
-                                            </td>
-                                            <td className="py-3">
-                                                <div>
-                                                    <div className="fw-medium">{order.user?.name || "N/A"}</div>
-                                                    <small className="text-muted">{order.user?.email}</small>
-                                                </div>
-                                            </td>
-                                            <td className="py-3">
-                                                <div className="small">
-                                                    {order.items?.filter(item => item.item?.is_customizable).map((item, idx) => (
-                                                        <div key={idx} className="mb-1">
-                                                            <span className="fw-medium">{item.item?.name}</span>
-                                                            <Badge bg="info" className="ms-1">
-                                                                <BsGear className="me-1" />
-                                                                Custom
-                                                            </Badge>
-                                                            <span className="text-muted"> (×{item.quantity})</span>
-                                                        </div>
-                                                    ))}
-                                                    {order.items?.filter(item => !item.item?.is_customizable).map((item, idx) => (
-                                                        <div key={idx} className="mb-1">
-                                                            <span className="fw-medium">{item.item?.name}</span>
-                                                            <span className="text-muted"> (×{item.quantity})</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </td>
-                                            <td className="py-3">
-                                                <span className="fw-bold fs-6">₱{order.amount.toLocaleString()}</span>
-                                            </td>
-                                            <td className="py-3">
-                                                <Badge bg={getStatusVariant(order.status)} className="text-capitalize px-3 py-2">
-                                                    {order.status}
-                                                </Badge>
-                                            </td>
-                                            <td className="py-3">
-                                                <div className="d-flex gap-1">
-                                                    <Form.Select
-                                                        size="sm"
-                                                        value={order.status}
-                                                        onChange={(e) => handleStatusChange(order._id, e.target.value)}
-                                                        style={{ minWidth: "120px" }}
-                                                    >
-                                                        <option value="On Process">On Process</option>
-                                                        <option value="Delivered">Delivered</option>
-                                                        {order.status === "Delivered" && (
-                                                            <option value="Refunded">Refunded</option>
-                                                        )}
-
-                                                    </Form.Select>
-                                                    {(order.status === "Delivered" || order.status === "On Process") && !order.deliveryProof && (
-                                                        <Button
-                                                            size="sm"
-                                                            variant="success"
-                                                            onClick={() => handleUploadDeliveryProof(order)}
-                                                            title="Upload Delivery Proof"
-                                                        >
-                                                            📸
-                                                        </Button>
-                                                    )}
-                                                    {order.deliveryProof && (
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline-info"
-                                                            onClick={() => window.open(order.deliveryProof, '_blank')}
-                                                            title="View Delivery Proof"
-                                                        >
-                                                            👁️
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {currentOrders.map(order => renderOrderRow(order))}
                                 </tbody>
                             </Table>
                         </div>
@@ -1140,6 +1251,18 @@ const AdminPage = () => {
             }
         }
 
+        const handleActivateItem = async (id) => {
+            try {
+                await axios.put(`${BACKEND_URL}/api/items/${id}/activate`, {}, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+                })
+                fetchData()
+            } catch (err) {
+                console.error("Error activating item:", err)
+                alert("Unable to activate item")
+            }
+        }
+
         const filteredItems = useMemo(() => {
             let filtered = items
 
@@ -1222,6 +1345,15 @@ const AdminPage = () => {
                                 <Button variant="outline-secondary" className="w-100">
                                     <BsFilter className="me-1" />
                                     More Filters
+                                </Button>
+                            </Col>
+                            <Col lg={2}>
+                                <Button
+                                    variant={showInactiveItems ? "secondary" : "outline-secondary"}
+                                    className="w-100"
+                                    onClick={() => setShowInactiveItems((prev) => !prev)}
+                                >
+                                    {showInactiveItems ? "Hide Inactive" : "Show Inactive"}
                                 </Button>
                             </Col>
                         </Row>
@@ -1460,14 +1592,21 @@ const AdminPage = () => {
                                                 </div>
                                             </td>
                                             <td className="py-3">
-                                                <div className="d-flex gap-1">
-                                                    <Button size="sm" variant="outline-primary" onClick={() => handleEditItem(item)}>
-                                                        <BsPencil />
+                                                {/* Action buttons */}
+                                                {showInactiveItems ? (
+                                                    <Button size="sm" variant="success" onClick={() => handleActivateItem(item._id)}>
+                                                        Activate
                                                     </Button>
-                                                    <Button size="sm" variant="outline-danger" onClick={() => handleDeleteItem(item._id)}>
-                                                        <BsTrash />
-                                                    </Button>
-                                                </div>
+                                                ) : (
+                                                    <div className="d-flex gap-1">
+                                                        <Button size="sm" variant="outline-primary" onClick={() => handleEditItem(item)}>
+                                                            <BsPencil />
+                                                        </Button>
+                                                        <Button size="sm" variant="outline-danger" onClick={() => handleDeleteItem(item._id)}>
+                                                            <BsTrash />
+                                                        </Button>
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
@@ -1545,6 +1684,18 @@ const AdminPage = () => {
             }
         }
 
+        const handleActivateUser = async (id) => {
+            try {
+                await axios.put(`${BACKEND_URL}/api/users/${id}/activate`, {}, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+                })
+                fetchData()
+            } catch (err) {
+                console.error("Error activating user:", err)
+                alert("Unable to activate user")
+            }
+        }
+
         const filteredUsers = useMemo(() => {
             let filtered = users
 
@@ -1596,6 +1747,15 @@ const AdminPage = () => {
                                     <option value="user">Users</option>
                                     <option value="admin">Admins</option>
                                 </Form.Select>
+                            </Col>
+                            <Col lg={4}>
+                                <Button
+                                    variant={showInactiveUsers ? "secondary" : "outline-secondary"}
+                                    className="w-100"
+                                    onClick={() => setShowInactiveUsers((prev) => !prev)}
+                                >
+                                    {showInactiveUsers ? "Hide Inactive" : "Show Inactive"}
+                                </Button>
                             </Col>
                         </Row>
                     </Card.Body>
@@ -1674,7 +1834,11 @@ const AdminPage = () => {
                                                 </span>
                                             </td>
                                             <td className="py-3">
-                                                {editUserId === user._id ? (
+                                                {showInactiveUsers ? (
+                                                    <Button size="sm" variant="success" onClick={() => handleActivateUser(user._id)}>
+                                                        Activate
+                                                    </Button>
+                                                ) : editUserId === user._id ? (
                                                     <div className="d-flex gap-1">
                                                         <Button size="sm" variant="success" onClick={() => handleUpdateUser(user._id)}>
                                                             <BsCheck />
@@ -1791,12 +1955,50 @@ const AdminPage = () => {
             }
         }
 
+        const activateCategory = async (id) => {
+            try {
+                await axios.put(`${BACKEND_URL}/api/categories/${id}/activate`, {}, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+                })
+                fetchData()
+            } catch (err) {
+                alert("Error activating category")
+            }
+        }
+
+        const activateFurnitureTypeAPI = async (id) => {
+            try {
+                await axios.put(`${BACKEND_URL}/api/furnituretypes/${id}/activate`, {}, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+                })
+                fetchData()
+            } catch (err) {
+                alert("Error activating furniture type")
+            }
+        }
+
         return (
             <div>
                 <div className="d-flex justify-content-between align-items-center mb-4">
                     <div>
                         <h2 className="mb-1">Store Settings</h2>
                         <p className="text-muted mb-0">Manage categories and furniture types for your products</p>
+                    </div>
+                    <div className="d-flex gap-2">
+                        <Button
+                            size="sm"
+                            variant={showInactiveCategories ? "secondary" : "outline-secondary"}
+                            onClick={() => setShowInactiveCategories(prev => !prev)}
+                        >
+                            {showInactiveCategories ? "Hide" : "Show"} Inactive Categories
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant={showInactiveTypes ? "secondary" : "outline-secondary"}
+                            onClick={() => setShowInactiveTypes(prev => !prev)}
+                        >
+                            {showInactiveTypes ? "Hide" : "Show"} Inactive Types
+                        </Button>
                     </div>
                 </div>
 
@@ -1834,48 +2036,67 @@ const AdminPage = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {categories.map((cat) => (
-                                                <tr key={cat._id} className="border-bottom">
-                                                    <td className="py-3">
-                                                        {editingCategory?._id === cat._id ? (
-                                                            <Form.Control
-                                                                size="sm"
-                                                                value={editingCategory.name}
-                                                                onChange={(e) =>
-                                                                    setEditingCategory({
-                                                                        ...editingCategory,
-                                                                        name: e.target.value,
-                                                                    })
-                                                                }
-                                                                onKeyPress={(e) => e.key === "Enter" && updateCategory()}
-                                                            />
-                                                        ) : (
-                                                            <span className="fw-medium">{cat.name}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="py-3">
-                                                        {editingCategory?._id === cat._id ? (
-                                                            <div className="d-flex gap-1">
-                                                                <Button size="sm" variant="success" onClick={updateCategory}>
-                                                                    <BsCheck />
-                                                                </Button>
-                                                                <Button size="sm" variant="secondary" onClick={() => setEditingCategory(null)}>
-                                                                    <BsX />
-                                                                </Button>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="d-flex gap-1">
-                                                                <Button size="sm" variant="outline-primary" onClick={() => setEditingCategory(cat)}>
-                                                                    <BsPencil />
-                                                                </Button>
-                                                                <Button size="sm" variant="outline-danger" onClick={() => deleteCategory(cat._id)}>
-                                                                    <BsTrash />
-                                                                </Button>
-                                                            </div>
-                                                        )}
+                                            {loading ? (
+                                                <tr>
+                                                    <td colSpan="2" className="text-center py-4">
+                                                        <Spinner animation="border" size="sm" className="me-2" />
+                                                        Loading categories...
                                                     </td>
                                                 </tr>
-                                            ))}
+                                            ) : categories.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="2" className="text-center py-4 text-muted">
+                                                        {showInactiveCategories ? "No inactive categories found" : "No categories found"}
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                categories.map((cat) => (
+                                                    <tr key={cat._id} className="border-bottom">
+                                                        <td className="py-3">
+                                                            {editingCategory?._id === cat._id ? (
+                                                                <Form.Control
+                                                                    size="sm"
+                                                                    value={editingCategory.name}
+                                                                    onChange={(e) =>
+                                                                        setEditingCategory({
+                                                                            ...editingCategory,
+                                                                            name: e.target.value,
+                                                                        })
+                                                                    }
+                                                                    onKeyPress={(e) => e.key === "Enter" && updateCategory()}
+                                                                />
+                                                            ) : (
+                                                                <span className="fw-medium">{cat.name}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3">
+                                                            {showInactiveCategories ? (
+                                                                <Button size="sm" variant="success" onClick={() => activateCategory(cat._id)}>
+                                                                    Activate
+                                                                </Button>
+                                                            ) : editingCategory?._id === cat._id ? (
+                                                                <div className="d-flex gap-1">
+                                                                    <Button size="sm" variant="success" onClick={updateCategory}>
+                                                                        <BsCheck />
+                                                                    </Button>
+                                                                    <Button size="sm" variant="secondary" onClick={() => setEditingCategory(null)}>
+                                                                        <BsX />
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="d-flex gap-1">
+                                                                    <Button size="sm" variant="outline-primary" onClick={() => setEditingCategory(cat)}>
+                                                                        <BsPencil />
+                                                                    </Button>
+                                                                    <Button size="sm" variant="outline-danger" onClick={() => deleteCategory(cat._id)}>
+                                                                        <BsTrash />
+                                                                    </Button>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
                                         </tbody>
                                     </Table>
                                 </div>
@@ -1916,48 +2137,67 @@ const AdminPage = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {furnitureTypes.map((ft) => (
-                                                <tr key={ft._id} className="border-bottom">
-                                                    <td className="py-3">
-                                                        {editingFurnitureType?._id === ft._id ? (
-                                                            <Form.Control
-                                                                size="sm"
-                                                                value={editingFurnitureType.name}
-                                                                onChange={(e) =>
-                                                                    setEditingFurnitureType({
-                                                                        ...editingFurnitureType,
-                                                                        name: e.target.value,
-                                                                    })
-                                                                }
-                                                                onKeyPress={(e) => e.key === "Enter" && updateFurnitureType()}
-                                                            />
-                                                        ) : (
-                                                            <span className="fw-medium">{ft.name}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="py-3">
-                                                        {editingFurnitureType?._id === ft._id ? (
-                                                            <div className="d-flex gap-1">
-                                                                <Button size="sm" variant="success" onClick={updateFurnitureType}>
-                                                                    <BsCheck />
-                                                                </Button>
-                                                                <Button size="sm" variant="secondary" onClick={() => setEditingFurnitureType(null)}>
-                                                                    <BsX />
-                                                                </Button>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="d-flex gap-1">
-                                                                <Button size="sm" variant="outline-primary" onClick={() => setEditingFurnitureType(ft)}>
-                                                                    <BsPencil />
-                                                                </Button>
-                                                                <Button size="sm" variant="outline-danger" onClick={() => deleteFurnitureType(ft._id)}>
-                                                                    <BsTrash />
-                                                                </Button>
-                                                            </div>
-                                                        )}
+                                            {loading ? (
+                                                <tr>
+                                                    <td colSpan="2" className="text-center py-4">
+                                                        <Spinner animation="border" size="sm" className="me-2" />
+                                                        Loading furniture types...
                                                     </td>
                                                 </tr>
-                                            ))}
+                                            ) : furnitureTypes.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="2" className="text-center py-4 text-muted">
+                                                        {showInactiveTypes ? "No inactive furniture types found" : "No furniture types found"}
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                furnitureTypes.map((ft) => (
+                                                    <tr key={ft._id} className="border-bottom">
+                                                        <td className="py-3">
+                                                            {editingFurnitureType?._id === ft._id ? (
+                                                                <Form.Control
+                                                                    size="sm"
+                                                                    value={editingFurnitureType.name}
+                                                                    onChange={(e) =>
+                                                                        setEditingFurnitureType({
+                                                                            ...editingFurnitureType,
+                                                                            name: e.target.value,
+                                                                        })
+                                                                    }
+                                                                    onKeyPress={(e) => e.key === "Enter" && updateFurnitureType()}
+                                                                />
+                                                            ) : (
+                                                                <span className="fw-medium">{ft.name}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3">
+                                                            {showInactiveTypes ? (
+                                                                <Button size="sm" variant="success" onClick={() => activateFurnitureTypeAPI(ft._id)}>
+                                                                    Activate
+                                                                </Button>
+                                                            ) : editingFurnitureType?._id === ft._id ? (
+                                                                <div className="d-flex gap-1">
+                                                                    <Button size="sm" variant="success" onClick={updateFurnitureType}>
+                                                                        <BsCheck />
+                                                                    </Button>
+                                                                    <Button size="sm" variant="secondary" onClick={() => setEditingFurnitureType(null)}>
+                                                                        <BsX />
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="d-flex gap-1">
+                                                                    <Button size="sm" variant="outline-primary" onClick={() => setEditingFurnitureType(ft)}>
+                                                                        <BsPencil />
+                                                                    </Button>
+                                                                    <Button size="sm" variant="outline-danger" onClick={() => deleteFurnitureType(ft._id)}>
+                                                                        <BsTrash />
+                                                                    </Button>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
                                         </tbody>
                                     </Table>
                                 </div>
@@ -2381,6 +2621,18 @@ const AdminPage = () => {
                         >
                             <BsTagFill className="me-3" />
                             Settings
+                        </Nav.Link>
+                    </Nav.Item>
+                    <Nav.Item className="mb-2">
+                        <Nav.Link eventKey="analytics" className="text-white rounded d-flex align-items-center py-3">
+                            <BsBarChart className="me-3" />
+                            Analytics
+                        </Nav.Link>
+                    </Nav.Item>
+                    <Nav.Item className="mb-2">
+                        <Nav.Link eventKey="logs" className="text-white rounded d-flex align-items-center py-3">
+                            <BsClipboardCheck className="me-3" />
+                            Activity Logs
                         </Nav.Link>
                     </Nav.Item>
                 </Nav>
@@ -3093,6 +3345,12 @@ const AdminPage = () => {
                                 {!sidebarCollapsed && "Analytics"}
                             </Nav.Link>
                         </Nav.Item>
+                        <Nav.Item className="mb-2">
+                            <Nav.Link eventKey="logs" className="text-white rounded d-flex align-items-center py-3 px-3">
+                                <BsClipboardCheck className={sidebarCollapsed ? "mx-auto" : "me-3"} />
+                                {!sidebarCollapsed && "Activity Logs"}
+                            </Nav.Link>
+                        </Nav.Item>
                     </Nav>
                     <div className="mt-auto p-3 border-top border-secondary">
                         <Button variant="outline-light" size="sm" className="w-100" onClick={handleLogout}>
@@ -3141,6 +3399,7 @@ const AdminPage = () => {
                         {activeTab === "categoriesandfurnituretypes" && <StoreSettingsView />}
                         {activeTab === "chat" && <ChatPage />}
                         {activeTab === "analytics" && <AnalyticsView />}
+                        {activeTab === "logs" && <LogsView />}
                     </div>
                 </div>
             </div>

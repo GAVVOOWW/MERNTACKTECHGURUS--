@@ -24,10 +24,14 @@ import Order from "./models/order.model.js";
 import Chat from "./models/chat.model.js";
 import Category from "./models/category.model.js";
 import FurnitureType from "./models/furnitureType.model.js";
+import Log from "./models/log.model.js";
 
 // Middleware & Config Imports
 import { connectDB } from "./config/db.js";
 import { authenticateToken, authorizeRoles } from "./middleware/auth.js";
+
+// Utils Imports
+import LoggerService from "./utils/logger.js";
 
 // =================================================================
 // INITIALIZATION
@@ -174,143 +178,143 @@ let extractor;
 
 app.post('/api/items/semantic-search', async (req, res) => {
 
-        try {
-    
-            const { query, limit: reqLimit } = req.body;
-    
-            if (!query) return res.status(400).json({ success: false, message: 'Query is required.' });
-    
-    
-    
-            const command = await parseQueryWithGroq(query);
-    
-            console.log("[Groq Parsed Command]:", command);
-    
-    
-    
-            const { semanticQuery, limit, sortBy, sortOrder, filters } = command;
-    
-    
-    
-            if (!extractor) {
-    
-                return res.status(503).json({ success: false, message: 'AI search model is still loading. Please try again in a moment.' });
-    
-            }
-    
-    
-    
-            // Prefer: parsed limit -> request body limit -> default 12
-    
-            const numResults = parseInt(limit, 10) || parseInt(reqLimit, 10) || 12;
-    
-    
-    
-            // Build a $match stage for any non-vector filters we want to apply *after* similarity scoring
-    
-            const postMatchStage = {};
-    
-            if (filters) {
-    
-                if (filters.maxPrice) postMatchStage.price = { ...postMatchStage.price, $lte: filters.maxPrice };
-    
-                if (filters.minPrice) postMatchStage.price = { ...postMatchStage.price, $gte: filters.minPrice };
-    
-                if (filters.maxLength) postMatchStage.length = { $lte: filters.maxLength };
-    
-                if (filters.maxWidth) postMatchStage.width = { $lte: filters.maxWidth };
-    
-                if (filters.maxHeight) postMatchStage.height = { $lte: filters.maxHeight };
-    
-                if (filters.is_bestseller !== undefined) postMatchStage.is_bestseller = filters.is_bestseller;
-    
-                if (filters.is_customizable !== undefined) postMatchStage.is_customizable = filters.is_customizable;
-    
-                if (filters.isPackage !== undefined) postMatchStage.isPackage = filters.isPackage;
-    
-            }
-    
-    
-    
-            const pipeline = [];
-    
-    
-    
-            const queryEmbedding = await extractor(semanticQuery, { pooling: 'mean', normalize: true });
-    
-    
-    
-            // $vectorSearch MUST be the first stage in the pipeline
-    
-            pipeline.push({
-    
-                $vectorSearch: {
-    
-                    index: 'vector_index',
-    
-                    path: 'embedding',
-    
-                    queryVector: Array.from(queryEmbedding.data),
-    
-                    numCandidates: 200,
-    
-                    limit: numResults,
-    
-                }
-    
-            });
-    
-    
-    
-            // Apply attribute-based filters *after* the similarity search
-    
-            if (Object.keys(postMatchStage).length > 0) {
-    
-                pipeline.push({ $match: postMatchStage });
-    
-            }
-    
-    
-    
-            if (sortBy && sortOrder) {
-    
-                const sortStage = { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } };
-    
-                pipeline.push(sortStage);
-    
-            }
-    
-    
-    
-            pipeline.push({
-    
-                $project: {
-    
-                    _id: 1, name: 1, description: 1, price: 1, imageUrl: 1, sales: 1,
-    
-                    score: { $meta: "vectorSearchScore" }
-    
-                }
-    
-            });
-    
-    
-    
-            const results = await Item.aggregate(pipeline);
-    
-            res.json({ success: true, ItemData: results, parsedCommand: command });
-    
-    
-    
-        } catch (err) {
-    
-            console.error('Error in semantic search route:', err);
-    
-            res.status(500).json({ success: false, message: 'Server error during search.' });
-    
-        }
-    
-    });
+    try {
+
+        const { query, limit: reqLimit } = req.body;
+
+        if (!query) return res.status(400).json({ success: false, message: 'Query is required.' });
+
+
+
+        const command = await parseQueryWithGroq(query);
+
+        console.log("[Groq Parsed Command]:", command);
+
+
+
+        const { semanticQuery, limit, sortBy, sortOrder, filters } = command;
+
+
+
+        if (!extractor) {
+
+            return res.status(503).json({ success: false, message: 'AI search model is still loading. Please try again in a moment.' });
+
+        }
+
+
+
+        // Prefer: parsed limit -> request body limit -> default 12
+
+        const numResults = parseInt(limit, 10) || parseInt(reqLimit, 10) || 12;
+
+
+
+        // Build a $match stage for any non-vector filters we want to apply *after* similarity scoring
+
+        const postMatchStage = {};
+
+        if (filters) {
+
+            if (filters.maxPrice) postMatchStage.price = { ...postMatchStage.price, $lte: filters.maxPrice };
+
+            if (filters.minPrice) postMatchStage.price = { ...postMatchStage.price, $gte: filters.minPrice };
+
+            if (filters.maxLength) postMatchStage.length = { $lte: filters.maxLength };
+
+            if (filters.maxWidth) postMatchStage.width = { $lte: filters.maxWidth };
+
+            if (filters.maxHeight) postMatchStage.height = { $lte: filters.maxHeight };
+
+            if (filters.is_bestseller !== undefined) postMatchStage.is_bestseller = filters.is_bestseller;
+
+            if (filters.is_customizable !== undefined) postMatchStage.is_customizable = filters.is_customizable;
+
+            if (filters.isPackage !== undefined) postMatchStage.isPackage = filters.isPackage;
+
+        }
+
+
+
+        const pipeline = [];
+
+
+
+        const queryEmbedding = await extractor(semanticQuery, { pooling: 'mean', normalize: true });
+
+
+
+        // $vectorSearch MUST be the first stage in the pipeline
+
+        pipeline.push({
+
+            $vectorSearch: {
+
+                index: 'vector_index',
+
+                path: 'embedding',
+
+                queryVector: Array.from(queryEmbedding.data),
+
+                numCandidates: 200,
+
+                limit: numResults,
+
+            }
+
+        });
+
+
+
+        // Apply attribute-based filters *after* the similarity search
+
+        if (Object.keys(postMatchStage).length > 0) {
+
+            pipeline.push({ $match: postMatchStage });
+
+        }
+
+
+
+        if (sortBy && sortOrder) {
+
+            const sortStage = { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } };
+
+            pipeline.push(sortStage);
+
+        }
+
+
+
+        pipeline.push({
+
+            $project: {
+
+                _id: 1, name: 1, description: 1, price: 1, imageUrl: 1, sales: 1,
+
+                score: { $meta: "vectorSearchScore" }
+
+            }
+
+        });
+
+
+
+        const results = await Item.aggregate(pipeline);
+
+        res.json({ success: true, ItemData: results, parsedCommand: command });
+
+
+
+    } catch (err) {
+
+        console.error('Error in semantic search route:', err);
+
+        res.status(500).json({ success: false, message: 'Server error during search.' });
+
+    }
+
+});
 
 // Get or create a chat for a user with an admin
 
@@ -431,7 +435,7 @@ io.on('connection', (socket) => {
 //PATMONGO API------------------------------------------------------------
 app.post("/api/create-checkout-session", authenticateToken, async (req, res) => {
     console.log("=== PAYMONGO CHECKOUT SESSION CREATION STARTED ===");
-    
+
     // The amount and shippingFee now come directly from the frontend's calculation
     const { amount, items, shippingFee, deliveryOption } = req.body;
 
@@ -466,7 +470,7 @@ app.post("/api/create-checkout-session", authenticateToken, async (req, res) => 
                 quantity: 1,
             });
         }
-        
+
         // 3. The total amount for the checkout session should match the grandTotal from the frontend
         const totalAmountInCentavos = Math.round(amount * 100);
 
@@ -480,7 +484,7 @@ app.post("/api/create-checkout-session", authenticateToken, async (req, res) => 
                     send_email_receipt: true,
                     show_line_items: true,
                     // The API expects the total amount to be here as well for some validations
-                    amount: totalAmountInCentavos, 
+                    amount: totalAmountInCentavos,
                 },
             },
         };
@@ -523,13 +527,12 @@ app.post("/api/paymongo-webhook", bodyParser.raw({ type: 'application/json' }), 
 
         if (event.type === 'checkout_session.completed') {
             const sessionId = event.data.attributes.data.id;
-            const order = await Order.findOne({ transactionId: sessionId });
+            const order = await Order.findOne({ transactionId: sessionId }).populate('user', 'name email');
 
             if (order) {
                 // Update order status
                 order.status = 'On Process';
                 await order.save();
-
 
                 const itemIds = order.items.map(item => item._id);
 
@@ -538,8 +541,14 @@ app.post("/api/paymongo-webhook", bodyParser.raw({ type: 'application/json' }), 
                     { $pull: { items: { _id: { $in: itemIds } } } }
                 );
 
-
                 console.log(`Order ${order._id} marked as paid and cart cleared`);
+
+                // Log the payment received
+                await LoggerService.logPayment('payment_received', order, order.user, {
+                    paymentMethod: 'PayMongo',
+                    sessionId,
+                    amount: order.amount
+                });
             }
         }
 
@@ -666,6 +675,15 @@ app.post('/api/orders/:id/delivery-proof', authenticateToken, authorizeRoles("ad
 
                     console.log(`Delivery proof submitted for order ${orderId}:`, result.secure_url);
 
+                    // Log the delivery proof upload
+                    await LoggerService.logOrder('delivery_proof_uploaded', updatedOrder, req.user, {
+                        deliveryProofUrl: result.secure_url,
+                        customerName: updatedOrder.user?.name,
+                        customerEmail: updatedOrder.user?.email,
+                        previousStatus: 'On Process',
+                        newStatus: 'Delivered'
+                    }, req);
+
                     res.json({
                         success: true,
                         message: 'Delivery proof submitted and order completed',
@@ -688,11 +706,9 @@ app.post('/api/orders/:id/delivery-proof', authenticateToken, authorizeRoles("ad
 });
 
 
-// Save order only
-// server.js (or your relevant routes file)
 
-// server.js (or your relevant routes file)
 
+// Updated Order Creation Route
 app.post('/api/orders', authenticateToken, async (req, res) => {
     console.log("=== BACKEND ORDER CREATION STARTED ===");
     console.log("Request body:", req.body);
@@ -707,7 +723,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         scheduledDate,
         shippingInfo
     } = req.body;
-    const userId = req.user.id; // Correctly getting user ID from token
+    const userId = req.user.id;
 
     console.log('Order creation request received:', {
         userId,
@@ -719,7 +735,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     });
 
     try {
-        // --- Your duplicate check logic is great, no changes needed there ---
+        // --- Duplicate check logic remains the same ---
         if (transactionHash) {
             console.log("Checking for duplicate order with hash:", transactionHash);
             const existingOrderByHash = await Order.findOne({ transactionHash: transactionHash });
@@ -734,81 +750,46 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
 
         console.log("=== FETCHING USER DETAILS ===");
-        // Fetch user details
         const user = await User.findById(userId);
         if (!user) {
             console.log("ERROR: User not found with ID:", userId);
             return res.status(404).json({ error: "User not found" });
         }
-        console.log("User found:", {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            hasAddress: !!user.address,
-            hasPhone: !!user.phone
-        });
 
-        // --- CORRECTED LOGIC TO MATCH YOUR SCHEMA ---
-
-        // These will be the top-level address/phone fields required by your schema.
+        // Address processing logic remains the same...
         let orderAddress;
         let orderPhone;
         let orderShippingAddress = null;
 
-        console.log("=== PROCESSING DELIVERY OPTIONS ===");
-        console.log("Delivery option:", deliveryOption);
-        console.log("Shipping info:", shippingInfo);
-
         if (deliveryOption === 'shipping' && shippingInfo) {
-            console.log("Processing shipping order");
-            // For shipping, use the detailed info from the checkout form
             orderAddress = `${shippingInfo.addressLine1}, ${shippingInfo.brgyName}, ${shippingInfo.cityName}, ${shippingInfo.postalCode}`;
             orderPhone = shippingInfo.phone;
-
-            // Populate the 'shippingAddress' object from your schema
             orderShippingAddress = {
                 fullName: shippingInfo.fullName,
                 addressLine1: shippingInfo.addressLine1,
-                // Note: Schema has 'state' and 'city', mapping from province/city names.
                 city: shippingInfo.cityName,
                 state: shippingInfo.provinceName,
                 postalCode: shippingInfo.postalCode,
                 phone: shippingInfo.phone
             };
-            console.log("Shipping address prepared:", orderAddress);
-            console.log("Shipping phone:", orderPhone);
-        } else { // Handles 'pickup' or any other default case
-            console.log("Processing pickup order");
-            // For pickup, convert user's address object to string format
+        } else {
             if (user.address && typeof user.address === 'object') {
                 const addr = user.address;
                 orderAddress = `${addr.addressLine1 || ''}, ${addr.brgyName || ''}, ${addr.cityName || ''}, ${addr.postalCode || ''}`.replace(/^,\s*/, '').replace(/,\s*,/g, ',');
-                console.log("User address object converted to string:", orderAddress);
             } else {
                 orderAddress = user.address || 'No address provided';
-                console.log("User address is string or null:", orderAddress);
             }
             orderPhone = user.phone || 'No phone provided';
-            console.log("User phone:", orderPhone);
         }
 
-        // Ensure we have valid string values for required fields
         if (!orderAddress || orderAddress.trim() === '') {
             orderAddress = 'Address not provided';
-            console.log("WARNING: Using fallback address");
         }
         if (!orderPhone || orderPhone.trim() === '') {
             orderPhone = 'Phone not provided';
-            console.log("WARNING: Using fallback phone");
         }
 
-        console.log("=== FINAL ADDRESS/PHONE VALUES ===");
-        console.log("Final order address:", orderAddress);
-        console.log("Final order phone:", orderPhone);
-
         console.log("=== PROCESSING ITEMS FOR ORDER ===");
-        console.log("Items from request body:", items);
-
         const processedItems = items.map(item => {
             const newItem = {
                 item: item.id || item.item,
@@ -820,144 +801,104 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
                 legsFrameMaterial: item.legsFrameMaterial ?? item.custom_details?.material3x3 ?? null,
                 tabletopMaterial: item.tabletopMaterial ?? item.custom_details?.material2x12 ?? null
             };
-            if (item.customH) {
-                console.log(`[ORDER CREATE] Found custom dimensions for item ${newItem.item}: H:${item.customH}, W:${item.customW}, L:${item.customL}`);
-            }
             return newItem;
         });
 
-        console.log("[ORDER CREATE] Processed items with custom dimensions:", processedItems);
+        // === NEW: DOWN PAYMENT SYSTEM LOGIC ===
+        console.log("=== DETERMINING ITEM TYPES AND ORDER STATUS ===");
 
-        // === PHASE 1: DOWN PAYMENT SYSTEM - CHECKING ITEM CUSTOMIZATION STATUS ===
-        console.log("=== PHASE 1: STARTING ITEM CUSTOMIZATION ANALYSIS ===");
-        console.log("🔍 Now checking if any items in this order are customizable...");
-        
         const itemIds = processedItems.map(item => item.item);
-        console.log("📋 Item IDs to check:", itemIds);
-        
         const itemDetails = await Item.find({ _id: { $in: itemIds } });
-        console.log("📦 Retrieved item details from database:", itemDetails.length, "items found");
-        
-        // Check each item individually for better logging
-        console.log("=== INDIVIDUAL ITEM CUSTOMIZATION CHECK ===");
-        const itemCustomizationResults = itemDetails.map(item => {
-            const result = {
-                id: item._id,
-                name: item.name,
-                is_customizable: item.is_customizable
-            };
-            
-            if (item.is_customizable) {
-                console.log(`✅ CUSTOMIZABLE ITEM FOUND: "${item.name}" (ID: ${item._id}) - is_customizable: true`);
-            } else {
-                console.log(`🔧 REGULAR ITEM FOUND: "${item.name}" (ID: ${item._id}) - is_customizable: false`);
-            }
-            
-            return result;
-        });
-        
-        const hasCustomizableItems = itemDetails.some(item => item.is_customizable);
-        
-        console.log("=== CUSTOMIZATION ANALYSIS SUMMARY ===");
-        console.log("📊 Total items analyzed:", itemDetails.length);
-        console.log("🎯 Has customizable items:", hasCustomizableItems);
-        console.log("📝 Full customization breakdown:", itemCustomizationResults);
 
-        // === PHASE 1: DETERMINING INITIAL ORDER STATUS BASED ON ITEM TYPE AND DELIVERY METHOD ===
-        console.log("=== PHASE 1: ORDER STATUS DETERMINATION LOGIC ===");
-        console.log("🚀 Starting status determination process...");
-        console.log("📋 Current delivery option:", deliveryOption);
-        
-        let initialStatus = 'On Process';
-        
-        if (!hasCustomizableItems) {
-            console.log("🔧 PROCESSING REGULAR ITEMS (NON-CUSTOMIZABLE)");
-            console.log("ℹ️  Since all items are regular (not customizable), applying down payment system logic...");
-            
-            if (deliveryOption === 'shipping') {
-                initialStatus = 'On Process';
-                console.log("📦 SHIPPING DELIVERY DETECTED for regular items");
-                console.log("✅ When delivery method is 'shipping' for regular items → Status set to 'On Process'");
-                console.log("🔄 This means the order will automatically be processed for shipping delivery");
-            } else if (deliveryOption === 'pickup') {
-                initialStatus = 'Ready for Pickup';
-                console.log("🏪 PICKUP DELIVERY DETECTED for regular items");
-                console.log("✅ When delivery method is 'pickup' for regular items → Status set to 'Ready for Pickup'");
-                console.log("🔄 This means the order is immediately ready for customer pickup");
-            } else {
-                console.log("⚠️  UNKNOWN DELIVERY METHOD:", deliveryOption);
-                console.log("🔄 Defaulting to 'On Process' status for safety");
-            }
+        const hasCustomizableItems = itemDetails.some(item => item.is_customizable);
+        console.log("Has customizable items:", hasCustomizableItems);
+
+        // Calculate down payment and balance
+        let downPayment = 0;
+        let balance = 0;
+        let paymentStatus = 'Pending Downpayment';
+        let initialStatus = 'Pending';
+
+        if (hasCustomizableItems) {
+            // Customizable items require 30% down payment (frontend logic)
+            downPayment = Math.round(amount * 0.3);
+            balance = amount - downPayment;
+            paymentStatus = 'Pending Downpayment';
+            initialStatus = 'Pending'; // Will change to 'On Process' after down payment
+            console.log("Customizable items detected - 30% down payment required");
         } else {
-            console.log("🎨 PROCESSING CUSTOMIZABLE ITEMS");
-            console.log("ℹ️  Since this order contains customizable items, keeping default processing status...");
-            console.log("✅ When order contains customizable items → Status remains 'On Process'");
-            console.log("🔄 Customizable items require manual processing regardless of delivery method");
+            // Regular items require full payment
+            downPayment = amount;
+            balance = 0;
+            paymentStatus = 'Fully Paid'; // This will be updated after payment confirmation
+
+            // Set initial status based on delivery option for regular items
+            if (deliveryOption === 'shipping') {
+                initialStatus = 'On Process'; // Auto-process for shipping
+            } else if (deliveryOption === 'pickup') {
+                initialStatus = 'Ready for Pickup'; // Ready for pickup immediately
+            }
+            console.log("Regular items detected - full payment required");
         }
 
-        console.log("=== FINAL STATUS DETERMINATION ===");
-        console.log("🎯 Final determined status:", initialStatus);
-        console.log("📝 Status logic applied based on:");
-        console.log("   - Has customizable items:", hasCustomizableItems);
-        console.log("   - Delivery option:", deliveryOption);
+        console.log("Payment breakdown:", {
+            totalAmount: amount,
+            downPayment,
+            balance,
+            paymentStatus,
+            initialStatus
+        });
 
-        // Create the new order with a flat structure matching your schema
-        console.log("=== CREATING ORDER DATA OBJECT ===");
+        // Create the order with new payment fields
         const orderData = {
             user: userId,
             amount,
+            downPayment,
+            balance,
+            paymentStatus,
             status: initialStatus,
             transactionHash: transactionHash,
             items: processedItems,
-            // Top-level fields as defined in your schema
             address: orderAddress,
             phone: orderPhone,
             shippingAddress: orderShippingAddress,
-            deliveryMethod: deliveryOption, // Add delivery method to order data
-            // Renaming to match schema field 'deliveryDate'
+            deliveryOption: deliveryOption,
+            shippingFee: shippingFee || 0,
             deliveryDate: scheduledDate ? new Date(scheduledDate) : null
         };
-        
-        console.log("📦 Order data object created with status:", orderData.status);
-        console.log("🚚 Order delivery method set to:", orderData.deliveryMethod);
 
         console.log("=== FINAL ORDER DATA ===");
         console.log("Order data to save:", orderData);
 
         const order = new Order(orderData);
-
-        console.log("=== ORDER MODEL CREATED ===");
-        console.log("Order model instance created successfully");
-
-        console.log('Attempting to save order with data:', {
-            userId: order.user,
-            amount: order.amount,
-            address: order.address,
-            phone: order.phone,
-            itemsCount: order.items.length,
-            hasShippingAddress: !!order.shippingAddress
-        });
-
         await order.save();
 
         console.log("=== ORDER SAVED SUCCESSFULLY ===");
         console.log('Order saved successfully:', {
             orderId: order._id,
             userId: order.user,
-            deliveryOption: deliveryOption, // Can log the original option
-            status: order.status
+            deliveryOption: deliveryOption,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            downPayment: order.downPayment,
+            balance: order.balance
         });
+
+        // Log the order creation
+        await LoggerService.logOrder('order_created', order, req.user, {
+            customerName: user.name,
+            customerEmail: user.email,
+            deliveryOption,
+            paymentStatus: order.paymentStatus,
+            itemsCount: processedItems.length,
+            hasCustomizableItems
+        }, req);
 
         res.status(201).json(order);
 
     } catch (error) {
         console.log("=== ORDER CREATION ERROR ===");
         console.error("Error creating order:", error);
-        console.error("Error name:", error.name);
-        console.error("Error message:", error.message);
-        console.error("Error stack:", error.stack);
-
-        // This will now give you a very specific Mongoose validation error if the schema is wrong
         res.status(500).json({
             error: "Failed to create order.",
             details: error.message
@@ -1067,22 +1008,22 @@ app.put('/api/orders/:id/request-refund', authenticateToken, async (req, res) =>
 app.post("/api/registeruser", async (req, res) => {
     console.log("=== REGISTRATION REQUEST RECEIVED ===");
     console.log("Request body:", req.body);
-    
+
     const { name, email, password, phone, role } = req.body; // Removed address
-    
+
     // Enhanced validation with specific error messages
     const validationErrors = [];
-    
+
     if (!name || name.trim().length < 2) {
         validationErrors.push("Name must be at least 2 characters long");
     }
-    
+
     if (!email || !email.trim()) {
         validationErrors.push("Email is required");
     } else if (!/\S+@\S+\.\S+/.test(email)) {
         validationErrors.push("Please provide a valid email address");
     }
-    
+
     if (!password) {
         validationErrors.push("Password is required");
     } else if (password.length < 6) {
@@ -1090,47 +1031,47 @@ app.post("/api/registeruser", async (req, res) => {
     } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
         validationErrors.push("Password must contain at least one uppercase letter, one lowercase letter, and one number");
     }
-    
+
     if (!phone || phone.trim().length < 10) {
         validationErrors.push("Please provide a valid phone number");
     }
-    
+
     // Removed address validation
-    
+
     // Return validation errors if any
     if (validationErrors.length > 0) {
         console.log("❌ Validation failed:", validationErrors);
-        return res.status(400).json({ 
-            success: false, 
+        return res.status(400).json({
+            success: false,
             message: "Validation failed",
             errors: validationErrors
         });
     }
-    
+
     try {
         // Check for existing user (case insensitive)
         console.log("🔍 Checking for existing user with email:", email);
-        const existingUser = await User.findOne({ 
-            email: { $regex: new RegExp(`^${email.trim()}$`, 'i') } 
+        const existingUser = await User.findOne({
+            email: { $regex: new RegExp(`^${email.trim()}$`, 'i') }
         });
-        
+
         if (existingUser) {
             console.log("❌ User already exists with email:", email);
-            return res.status(409).json({ 
-                success: false, 
-                message: "An account with this email already exists. Please use a different email or try logging in." 
+            return res.status(409).json({
+                success: false,
+                message: "An account with this email already exists. Please use a different email or try logging in."
             });
         }
-        
+
         console.log("✅ Email is available");
         console.log("🔐 Hashing password...");
-        
+
         // Hash password with proper salt rounds
         const saltRounds = 12; // Increased for better security
         const hashedPassword = await bcrypt.hash(password, saltRounds);
-        
+
         console.log("✅ Password hashed successfully");
-        
+
         // Prepare user data (removed address)
         const userData = {
             name: name.trim(),
@@ -1139,32 +1080,32 @@ app.post("/api/registeruser", async (req, res) => {
             password: hashedPassword,
             role: role || "user"
         };
-        
+
         console.log("💾 Creating new user...");
         const newUser = new User(userData);
         const savedUser = await newUser.save();
-        
+
         console.log("✅ User created successfully:", {
             id: savedUser._id,
             email: savedUser.email,
             role: savedUser.role
         });
-        
+
         // Create cart for the user
         console.log("🛒 Creating cart for user...");
-        const newCart = new Cart({ 
-            user: savedUser._id, 
-            items: [] 
+        const newCart = new Cart({
+            user: savedUser._id,
+            items: []
         });
         const savedCart = await newCart.save();
-        
+
         // Link cart to user
         savedUser.cart = savedCart._id;
         await savedUser.save();
-        
+
         console.log("✅ Cart created and linked to user");
         console.log("=== REGISTRATION SUCCESSFUL ===");
-        
+
         // Return success response (don't include password)
         const userResponse = {
             id: savedUser._id,
@@ -1174,47 +1115,47 @@ app.post("/api/registeruser", async (req, res) => {
             role: savedUser.role,
             cart: savedCart._id
         };
-        
-        res.status(201).json({ 
-            success: true, 
-            message: "Account created successfully! You can now log in.", 
-            UserData: { 
-                user: userResponse, 
-                cart: savedCart 
-            } 
+
+        res.status(201).json({
+            success: true,
+            message: "Account created successfully! You can now log in.",
+            UserData: {
+                user: userResponse,
+                cart: savedCart
+            }
         });
-        
+
     } catch (error) {
         console.log("=== REGISTRATION ERROR ===");
         console.error("Registration error:", error);
-        
+
         // Handle specific MongoDB errors
         if (error.code === 11000) {
             // Duplicate key error
             const field = Object.keys(error.keyPattern)[0];
-            const message = field === 'email' 
-                ? "An account with this email already exists" 
+            const message = field === 'email'
+                ? "An account with this email already exists"
                 : `This ${field} is already in use`;
-                
-            return res.status(409).json({ 
-                success: false, 
-                message 
+
+            return res.status(409).json({
+                success: false,
+                message
             });
         }
-        
+
         if (error.name === 'ValidationError') {
             // Mongoose validation error
             const validationErrors = Object.values(error.errors).map(e => e.message);
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 message: "Validation failed",
                 errors: validationErrors
             });
         }
-        
+
         // Generic server error
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             message: "Server error during registration. Please try again.",
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
@@ -1250,10 +1191,21 @@ app.put('/api/user/address', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Server error while updating address.' });
     }
 });
-// read all users
+// read all users (active by default, or filter by status)
 app.get('/api/allusers', async (req, res) => {
     try {
-        const users = await User.find();
+        const includeInactive = req.query.includeInactive === 'true';
+        const showOnlyInactive = req.query.showOnlyInactive === 'true';
+
+        let filter = {};
+        if (showOnlyInactive) {
+            filter = { status: 0 };
+        } else if (!includeInactive) {
+            filter = { status: 1 };
+        }
+
+        console.log(`[GET /api/allusers] includeInactive=${includeInactive}, showOnlyInactive=${showOnlyInactive}`);
+        const users = await User.find(filter);
         res.json({ success: true, UserData: users });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Error fetching users', error: err.message });
@@ -1264,31 +1216,31 @@ app.post("/api/login", async (req, res) => {
     console.log("=== LOGIN REQUEST RECEIVED ===");
     console.log("Request body:", req.body);
     console.log("Headers:", req.headers);
-    
+
     const { email, password } = req.body;
 
     // Validate input
     if (!email || !password) {
         console.log("❌ Missing email or password");
-        return res.status(400).json({ 
-            success: false, 
-            message: "Please fill in all fields" 
+        return res.status(400).json({
+            success: false,
+            message: "Please fill in all fields"
         });
     }
 
     try {
         console.log("🔍 Searching for user with email:", email);
-        
+
         // Find user by email (case insensitive)
-        const user = await User.findOne({ 
-            email: { $regex: new RegExp(`^${email}$`, 'i') } 
+        const user = await User.findOne({
+            email: { $regex: new RegExp(`^${email}$`, 'i') }
         });
 
         if (!user) {
             console.log("❌ User not found with email:", email);
-            return res.status(401).json({ 
-                success: false, 
-                message: "Invalid email or password" 
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password"
             });
         }
 
@@ -1302,9 +1254,9 @@ app.post("/api/login", async (req, res) => {
         // Check if password exists
         if (!user.password) {
             console.log("❌ User has no password set");
-            return res.status(401).json({ 
-                success: false, 
-                message: "Account setup incomplete. Please contact support." 
+            return res.status(401).json({
+                success: false,
+                message: "Account setup incomplete. Please contact support."
             });
         }
 
@@ -1318,9 +1270,9 @@ app.post("/api/login", async (req, res) => {
 
         if (!isMatch) {
             console.log("❌ Password does not match");
-            return res.status(401).json({ 
-                success: false, 
-                message: "Invalid email or password" 
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password"
             });
         }
 
@@ -1329,18 +1281,18 @@ app.post("/api/login", async (req, res) => {
         // Check JWT_SECRET
         if (!process.env.JWT_SECRET) {
             console.log("❌ JWT_SECRET not configured");
-            return res.status(500).json({ 
-                success: false, 
-                message: "Server configuration error" 
+            return res.status(500).json({
+                success: false,
+                message: "Server configuration error"
             });
         }
 
         // Issue JWT
         const token = jwt.sign(
-            { 
-                id: user._id, 
+            {
+                id: user._id,
                 role: user.role,
-                email: user.email 
+                email: user.email
             },
             process.env.JWT_SECRET,
             { expiresIn: "1d" }
@@ -1349,11 +1301,17 @@ app.post("/api/login", async (req, res) => {
         console.log("✅ Token generated successfully");
         console.log("=== LOGIN SUCCESSFUL ===");
 
-        res.status(200).json({ 
-            success: true, 
-            message: "Login successful", 
-            token, 
-            userId: user._id, 
+        // Log the user login
+        await LoggerService.logUser('user_login', user, user, {
+            loginTime: new Date(),
+            ipAddress: req.ip || req.connection?.remoteAddress
+        }, req);
+
+        res.status(200).json({
+            success: true,
+            message: "Login successful",
+            token,
+            userId: user._id,
             role: user.role,
             user: {
                 id: user._id,
@@ -1367,9 +1325,9 @@ app.post("/api/login", async (req, res) => {
         console.log("=== LOGIN ERROR ===");
         console.error("Login error:", error);
         console.error("Error stack:", error.stack);
-        
-        res.status(500).json({ 
-            success: false, 
+
+        res.status(500).json({
+            success: false,
             message: "Server error during login",
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
@@ -1406,15 +1364,22 @@ app.put('/api/updateusers/:id', async (req, res) => {
 // delete user saka cart
 app.delete('/api/deleteusers/:id', authenticateToken, authorizeRoles("admin"), async (req, res) => {
     try {
-        const user = await User.findByIdAndDelete(req.params.id);
-        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        console.log(`🗑️  [Soft-Delete] Disabling User ${req.params.id}`);
+        const updatedUser = await User.findByIdAndUpdate(
+            req.params.id,
+            { status: 0 },
+            { new: true }
+        );
 
-        // find and delete the user's cart
-        await Cart.findByIdAndDelete(user.cart);
+        if (!updatedUser) return res.status(404).json({ success: false, message: 'User not found' });
 
-        res.json({ success: true, message: 'User and cart deleted' });
+        // Optionally remove / archive their cart as well
+        await Cart.findByIdAndDelete(updatedUser.cart);
+
+        res.json({ success: true, message: 'User disabled and cart removed', UserData: updatedUser });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Error deleting user', error: err.message });
+        console.error('Error disabling user:', err.message);
+        res.status(500).json({ success: false, message: 'Error disabling user', error: err.message });
     }
 });
 
@@ -1466,6 +1431,15 @@ app.post("/api/items", authenticateToken, authorizeRoles("admin"), upload.array(
         // Create new item with array of image URLs
         const newItem = new Item({ ...bodyData, imageUrl: imageUrls });
         await newItem.save();
+
+        // Log the item creation
+        await LoggerService.logItem('item_created', newItem, req.user, {
+            itemName: newItem.name,
+            price: newItem.price,
+            stock: newItem.stock,
+            isCustomizable: newItem.is_customizable
+        }, req);
+
         res.status(201).json({ success: true, ItemData: newItem });
 
     } catch (err) {
@@ -1473,10 +1447,24 @@ app.post("/api/items", authenticateToken, authorizeRoles("admin"), upload.array(
         res.status(500).json({ success: false, message: "Server error creating item." });
     }
 });
-// read item all
+// read item all (active by default, or filter by status)
 app.get("/api/items", async (req, res) => {
     try {
-        const items = await Item.find().populate('category', 'name').populate('furnituretype', 'name');
+        const includeInactive = req.query.includeInactive === 'true';
+        const showOnlyInactive = req.query.showOnlyInactive === 'true';
+
+        let filter = {};
+        if (showOnlyInactive) {
+            filter = { status: 0 };
+        } else if (!includeInactive) {
+            filter = { status: 1 };
+        }
+
+        console.log(`[GET /api/items] includeInactive=${includeInactive}, showOnlyInactive=${showOnlyInactive} -> filter`, filter);
+
+        const items = await Item.find(filter)
+            .populate('category', 'name status')
+            .populate('furnituretype', 'name status');
         res.json({ success: true, ItemData: items });
     } catch (err) {
         console.error("Error fetching items:", err.message);
@@ -1611,22 +1599,47 @@ app.put("/api/items/:id", authenticateToken, authorizeRoles("admin"), upload.arr
         if (!updated) {
             return res.status(404).json({ success: false, message: "Item not found" });
         }
+
+        // Log the item update
+        await LoggerService.logItem('item_updated', updated, req.user, {
+            itemName: updated.name,
+            updatedFields: Object.keys(updates).filter(key => updates[key] !== undefined)
+        }, req);
+
         res.json({ success: true, ItemData: updated });
     } catch (err) {
         console.error("Error updating item:", err.message);
         res.status(500).json({ success: false, message: "Server error updating item" });
     }
 });
-//delete item admin role
+// --- SOFT-DELETE ITEM (status → 0) ---
 app.delete('/api/items/:id', authenticateToken, authorizeRoles("admin"), async (req, res) => {
     try {
-        const deleted = await Item.findByIdAndDelete(req.params.id);
-        if (!deleted) {
+        console.log(`🗑️  [Soft-Delete] Request to disable Item ${req.params.id}`);
+        const updated = await Item.findByIdAndUpdate(
+            req.params.id,
+            { status: 0 },
+            { new: true }
+        );
+
+        if (!updated) {
+            console.log("⚠️  Item not found – nothing disabled");
             return res.status(404).json({ success: false, message: "Item not found" });
         }
-        res.json({ success: true, message: "Item deleted" });
+
+        console.log(`✅  Item ${updated._id} status set to 0 (inactive)`);
+
+        // Log the item deletion
+        await LoggerService.logItem('item_deleted', updated, req.user, {
+            itemName: updated.name,
+            previousStatus: 1,
+            newStatus: 0
+        }, req);
+
+        res.json({ success: true, message: "Item disabled (soft-deleted)", ItemData: updated });
     } catch (err) {
-        res.status(500).json({ success: false, message: "Error deleting item", error: err.message });
+        console.error("❌  Error soft-deleting item:", err.message);
+        res.status(500).json({ success: false, message: "Error disabling item", error: err.message });
     }
 });
 
@@ -1663,6 +1676,14 @@ app.put('/api/orders/:id/status', authenticateToken, authorizeRoles("admin"), as
         if (!updatedOrder) {
             return res.status(404).json({ success: false, message: 'Order not found' });
         }
+
+        // Log the status change
+        await LoggerService.logOrder('order_status_changed', updatedOrder, req.user, {
+            previousStatus: updatedOrder.status,
+            newStatus: status,
+            customerName: updatedOrder.user?.name,
+            customerEmail: updatedOrder.user?.email
+        }, req);
 
         res.json({ success: true, message: 'Order status updated', OrderData: updatedOrder });
     } catch (err) {
@@ -1755,7 +1776,9 @@ app.post('/api/cart/:userId/add', authenticateToken, async (req, res) => {
                 customW,
                 customL,
                 legsFrameMaterial,
-                tabletopMaterial
+                tabletopMaterial,
+                customPrice: req.body.customPrice,
+                customizations: req.body.customizations || null,
             });
 
         } else {
@@ -1966,10 +1989,13 @@ app.get('/api/cart/:id', authenticateToken, async (req, res) => {
 
 // --------- Category Endpoints ---------
 
-// Get all categories
+// Get all categories (active by default)
 app.get('/api/categories', async (req, res) => {
     try {
-        const categories = await Category.find().sort('name');
+        const includeInactive = req.query.includeInactive === 'true';
+        const filter = includeInactive ? {} : { status: 1 };
+        console.log(`[GET /api/categories] includeInactive=${includeInactive}`);
+        const categories = await Category.find(filter).sort('name');
         res.json({ success: true, CategoryData: categories });
     } catch (err) {
         console.error('Error fetching categories:', err.message);
@@ -2012,25 +2038,32 @@ app.put('/api/categories/:id', authenticateToken, authorizeRoles("admin"), async
 // Delete category (admin only) with safety check
 app.delete('/api/categories/:id', authenticateToken, authorizeRoles("admin"), async (req, res) => {
     try {
-        const inUse = await Item.findOne({ category: req.params.id });
-        if (inUse) {
-            return res.status(400).json({ success: false, message: 'Cannot delete category in use by items' });
+        console.log(`🗑️  [Soft-Delete] Disabling Category ${req.params.id}`);
+        const updated = await Category.findByIdAndUpdate(
+            req.params.id,
+            { status: 0 },
+            { new: true }
+        );
+        if (!updated) {
+            console.log("⚠️  Category not found – nothing disabled");
+            return res.status(404).json({ success: false, message: 'Category not found' });
         }
-        const deleted = await Category.findByIdAndDelete(req.params.id);
-        if (!deleted) return res.status(404).json({ success: false, message: 'Category not found' });
-        res.json({ success: true, message: 'Category deleted' });
+        res.json({ success: true, message: 'Category disabled', CategoryData: updated });
     } catch (err) {
-        console.error('Error deleting category:', err.message);
-        res.status(500).json({ success: false, message: 'Server error deleting category' });
+        console.error('Error disabling category:', err.message);
+        res.status(500).json({ success: false, message: 'Server error disabling category' });
     }
 });
 
 // --------- Furniture Type Endpoints ---------
 
-// Get all furniture types
+// Get all furniture types (active by default)
 app.get('/api/furnituretypes', async (req, res) => {
     try {
-        const types = await FurnitureType.find().sort('name');
+        const includeInactive = req.query.includeInactive === 'true';
+        const filter = includeInactive ? {} : { status: 1 };
+        console.log(`[GET /api/furnituretypes] includeInactive=${includeInactive}`);
+        const types = await FurnitureType.find(filter).sort('name');
         res.json({ success: true, FurnitureTypeData: types });
     } catch (err) {
         console.error('Error fetching furniture types:', err.message);
@@ -2070,16 +2103,20 @@ app.put('/api/furnituretypes/:id', authenticateToken, authorizeRoles("admin"), a
 // Delete furniture type with safety
 app.delete('/api/furnituretypes/:id', authenticateToken, authorizeRoles("admin"), async (req, res) => {
     try {
-        const inUse = await Item.findOne({ furnituretype: req.params.id });
-        if (inUse) {
-            return res.status(400).json({ success: false, message: 'Cannot delete furniture type in use by items' });
+        console.log(`🗑️  [Soft-Delete] Disabling FurnitureType ${req.params.id}`);
+        const updated = await FurnitureType.findByIdAndUpdate(
+            req.params.id,
+            { status: 0 },
+            { new: true }
+        );
+        if (!updated) {
+            console.log("⚠️  Furniture type not found – nothing disabled");
+            return res.status(404).json({ success: false, message: 'Furniture type not found' });
         }
-        const deleted = await FurnitureType.findByIdAndDelete(req.params.id);
-        if (!deleted) return res.status(404).json({ success: false, message: 'Furniture type not found' });
-        res.json({ success: true, message: 'Furniture type deleted' });
+        res.json({ success: true, message: 'Furniture type disabled', FurnitureTypeData: updated });
     } catch (err) {
-        console.error('Error deleting furniture type:', err.message);
-        res.status(500).json({ success: false, message: 'Server error deleting furniture type' });
+        console.error('Error disabling furniture type:', err.message);
+        res.status(500).json({ success: false, message: 'Server error disabling furniture type' });
     }
 });
 
@@ -2180,8 +2217,117 @@ app.post('/api/items/:id/calculate-price', async (req, res) => {
 });
 // ---- End Custom Price Endpoint ----
 
+// ===================== ACTIVATION ENDPOINTS =====================
 
+// Reactivate item
+app.put('/api/items/:id/activate', authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        console.log(`🔄  [Activate] Re-enabling Item ${req.params.id}`);
+        const updated = await Item.findByIdAndUpdate(req.params.id, { status: 1 }, { new: true });
+        if (!updated) return res.status(404).json({ success: false, message: 'Item not found' });
+        res.json({ success: true, message: 'Item activated', ItemData: updated });
+    } catch (err) {
+        console.error('Error activating item:', err.message);
+        res.status(500).json({ success: false, message: 'Server error activating item' });
+    }
+});
 
+// Reactivate category
+app.put('/api/categories/:id/activate', authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        console.log(`🔄  [Activate] Re-enabling Category ${req.params.id}`);
+        const updated = await Category.findByIdAndUpdate(req.params.id, { status: 1 }, { new: true });
+        if (!updated) return res.status(404).json({ success: false, message: 'Category not found' });
+        res.json({ success: true, message: 'Category activated', CategoryData: updated });
+    } catch (err) {
+        console.error('Error activating category:', err.message);
+        res.status(500).json({ success: false, message: 'Server error activating category' });
+    }
+});
+
+// Reactivate furniture type
+app.put('/api/furnituretypes/:id/activate', authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        console.log(`🔄  [Activate] Re-enabling FurnitureType ${req.params.id}`);
+        const updated = await FurnitureType.findByIdAndUpdate(req.params.id, { status: 1 }, { new: true });
+        if (!updated) return res.status(404).json({ success: false, message: 'Furniture type not found' });
+        res.json({ success: true, message: 'Furniture type activated', FurnitureTypeData: updated });
+    } catch (err) {
+        console.error('Error activating furniture type:', err.message);
+        res.status(500).json({ success: false, message: 'Server error activating furniture type' });
+    }
+});
+
+// Reactivate user
+app.put('/api/users/:id/activate', authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        console.log(`🔄  [Activate] Re-enabling User ${req.params.id}`);
+        const updatedUser = await User.findByIdAndUpdate(req.params.id, { status: 1 }, { new: true });
+        if (!updatedUser) return res.status(404).json({ success: false, message: 'User not found' });
+        res.json({ success: true, message: 'User activated', UserData: updatedUser });
+    } catch (err) {
+        console.error('Error activating user:', err.message);
+        res.status(500).json({ success: false, message: 'Server error activating user' });
+    }
+});
+// =================== END ACTIVATION ENDPOINTS ===================
+
+// ===================== LOG ENDPOINTS =====================
+
+// Get logs with filters (admin only)
+app.get('/api/logs', authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        const {
+            startDate,
+            endDate,
+            action,
+            entityType,
+            userId,
+            page = 1,
+            limit = 50
+        } = req.query;
+
+        const skip = (page - 1) * limit;
+
+        const { logs, total } = await LoggerService.getLogs({
+            startDate,
+            endDate,
+            action,
+            entityType,
+            userId
+        }, {
+            limit: parseInt(limit),
+            skip: parseInt(skip)
+        });
+
+        res.json({
+            success: true,
+            logs,
+            total,
+            page: parseInt(page),
+            totalPages: Math.ceil(total / limit)
+        });
+    } catch (err) {
+        console.error('Error fetching logs:', err.message);
+        res.status(500).json({ success: false, message: 'Server error fetching logs' });
+    }
+});
+
+// Get log statistics (admin only)
+app.get('/api/logs/stats', authenticateToken, authorizeRoles("admin"), async (req, res) => {
+    try {
+        const { timeRange = '24h' } = req.query;
+        const stats = await LoggerService.getLogStats(timeRange);
+        res.json({ success: true, ...stats });
+    } catch (err) {
+        console.error('Error fetching log stats:', err.message);
+        res.status(500).json({ success: false, message: 'Server error fetching log stats' });
+    }
+});
+
+// =================== END LOG ENDPOINTS ===================
+
+// ... existing code ...
 
 // listen to server
 server.listen(process.env.PORT || 5001, () => { //3

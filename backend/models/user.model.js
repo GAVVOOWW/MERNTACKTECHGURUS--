@@ -22,6 +22,8 @@ const UserSchema = new mongoose.Schema({
   },
 
   phone: { type: String, required: true },
+  // 1 = active, 0 = inactive
+  status: { type: Number, default: 1, enum: [0, 1] },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   cart: { type: mongoose.Schema.Types.ObjectId, ref: 'Cart' }
 });

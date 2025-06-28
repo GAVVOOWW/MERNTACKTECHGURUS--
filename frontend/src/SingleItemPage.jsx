@@ -268,6 +268,14 @@ const SingleItemPage = () => {
           customL: customDims.length,
           legsFrameMaterial: selectedMaterial3x3,
           tabletopMaterial: selectedMaterial2x12,
+          customPrice: customPriceDetails.finalSellingPrice,
+          customizations: {
+            finalPrice: customPriceDetails.finalSellingPrice,
+            dimensions: customDims,
+            material3x3: selectedMaterial3x3,
+            material2x12: selectedMaterial2x12,
+            days: laborDays,
+          },
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );

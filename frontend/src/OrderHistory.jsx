@@ -177,7 +177,7 @@ const OrderHistory = () => {
     const totalPages = Math.ceil(filteredOrders.length / ordersPerPage)
 
     // Calculate statistics
-    const totalSpent = orders.reduce((sum, order) => sum + order.amount, 0)
+    const totalSpent = orders.reduce((sum, order) => sum + order.amount + (order.shippingFee || 0), 0)
     const completedOrders = orders.filter((order) => order.status === "completed" || order.status === "paid").length
     const pendingOrders = orders.filter((order) => order.status === "pending").length
 
@@ -478,7 +478,12 @@ const OrderHistory = () => {
                                                         </small>
                                                     </td>
                                                     <td>
-                                                        <div className="fw-bold text-primary fs-5">₱{order.amount.toFixed(2)}</div>
+                                                        <div className="fw-bold text-primary fs-5">₱{(order.amount + (order.shippingFee || 0)).toFixed(2)}</div>
+                                                        {order.shippingFee > 0 && (
+                                                            <small className="text-muted d-block">
+                                                                Items: ₱{order.amount.toFixed(2)} + Shipping: ₱{order.shippingFee.toFixed(2)}
+                                                            </small>
+                                                        )}
                                                     </td>
                                                     <td>
                                                         <div className="d-flex gap-2">
@@ -554,7 +559,12 @@ const OrderHistory = () => {
                                             </div>
                                             <div>
                                                 <strong>Total:</strong>{" "}
-                                                <span className="text-primary fw-bold">₱{selectedOrder.amount?.toFixed(2)}</span>
+                                                <span className="text-primary fw-bold">₱{(selectedOrder.amount + (selectedOrder.shippingFee || 0))?.toFixed(2)}</span>
+                                                {selectedOrder.shippingFee > 0 && (
+                                                    <div className="small text-muted">
+                                                        Items: ₱{selectedOrder.amount?.toFixed(2)} + Shipping: ₱{selectedOrder.shippingFee?.toFixed(2)}
+                                                    </div>
+                                                )}
                                             </div>
                                         </Card.Body>
                                     </Card>
