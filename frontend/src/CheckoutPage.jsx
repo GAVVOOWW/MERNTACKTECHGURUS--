@@ -355,6 +355,8 @@ const CheckoutPage = () => {
         {
           amount: grandTotal,
           items: itemsPayload,
+          shippingFee: shippingFee,
+          deliveryOption: deliveryOption,
         },
         {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },

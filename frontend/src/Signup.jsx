@@ -135,6 +135,11 @@ const Signup = () => {
                 backend: BACKEND_URL
             });
 
+            // Check if backend URL is defined
+            if (!BACKEND_URL) {
+                throw new Error('Backend URL not configured. Please check your environment variables.');
+            }
+
             const response = await axios.post(`${BACKEND_URL}/api/registeruser`, {
                 name: fullName,
                 email: formData.email.trim().toLowerCase(),
@@ -165,7 +170,7 @@ const Signup = () => {
                 // Redirect after a short delay
                 setTimeout(() => {
                     closeModal();
-                    navigate('/');
+                    navigate('/login');
                 }, 2500);
             } else {
                 showModalWithMessage(
@@ -178,23 +183,44 @@ const Signup = () => {
             console.error('Registration error:', error);
             
             let errorMessage = 'An unexpected error occurred. Please try again.';
+            let errorTitle = 'Registration Failed';
             
-            if (error.response) {
+            if (error.message === 'Backend URL not configured. Please check your environment variables.') {
+                errorMessage = error.message;
+                errorTitle = 'Configuration Error';
+            } else if (error.response) {
                 // Server responded with error status
                 if (error.response.status === 409) {
                     errorMessage = 'An account with this email already exists. Please use a different email or try logging in.';
+                } else if (error.response.status === 400) {
+                    // Handle validation errors from backend
+                    const backendErrors = error.response.data.errors;
+                    if (backendErrors && Array.isArray(backendErrors)) {
+                        errorMessage = backendErrors.join('. ');
+                    } else {
+                        errorMessage = error.response.data.message || 'Validation failed';
+                    }
                 } else {
                     errorMessage = error.response.data.message || 
                                  `Server error: ${error.response.status}`;
                 }
             } else if (error.request) {
                 // Request was made but no response received
-                errorMessage = 'Unable to connect to server. Please check your internet connection.';
+                if (error.code === 'ERR_NETWORK') {
+                    errorMessage = 'Unable to connect to server. Please check:\n\n' +
+                                 '• Is the backend server running?\n' +
+                                 '• Is the server running on the correct port?\n' +
+                                 '• Check your internet connection\n' +
+                                 `• Backend URL: ${BACKEND_URL}`;
+                    errorTitle = 'Connection Error';
+                } else {
+                    errorMessage = 'Unable to connect to server. Please check your internet connection.';
+                }
             }
             
             showModalWithMessage(
                 'error',
-                'Registration Failed',
+                errorTitle,
                 errorMessage
             );
         } finally {
@@ -240,7 +266,7 @@ const Signup = () => {
                             ></button>
                         </div>
                         <div className="modal-body">
-                            <p>{modalMessage}</p>
+                            <p style={{ whiteSpace: 'pre-line' }}>{modalMessage}</p>
                             {modalType === 'validation' && Object.keys(errors).length > 0 && (
                                 <ul className="list-unstyled mt-2">
                                     {Object.values(errors).map((error, index) => (

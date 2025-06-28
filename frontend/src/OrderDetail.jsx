@@ -66,7 +66,7 @@ const OrderDetail = () => {
   useEffect(() => {
     const fetchOrder = async () => {
       try {
-        const response = await axios.get(`${BACKEND_URL}/api/order/${id}/status`, {
+        const response = await axios.get(`${BACKEND_URL}/api/orders/${id}/status`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
@@ -246,7 +246,7 @@ const OrderDetail = () => {
 
       // Refresh order data to show updated status
       console.log("Refreshing order data...")
-      const updatedResponse = await axios.get(`${BACKEND_URL}/api/order/${id}/status`, {
+      const updatedResponse = await axios.get(`${BACKEND_URL}/api/orders/${id}/status`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("token")}`,
         },

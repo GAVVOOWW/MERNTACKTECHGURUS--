@@ -11,6 +11,7 @@ import bodyParser from 'body-parser';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { calculateCustomPrice } from "./utils/priceCalculator.js";
+import { checkGeminiHealth, quickGeminiCheck } from './utils/geminiHealthCheck.js'
 
 
 
@@ -33,11 +34,12 @@ import { authenticateToken, authorizeRoles } from "./middleware/auth.js";
 const app = express();
 const server = createServer(app);
 
-dotenv.config();
+dotenv.config(`./.env`);
 connectDB();
 
 import { pipeline } from '@xenova/transformers';
 import { parseQueryWithGemini } from './utils/geminiParser.js';
+import { parseQueryWithLlama } from './utils/llamaParser.js';
 
 
 
@@ -174,9 +176,9 @@ app.post('/api/items/semantic-search', async (req, res) => {
     
     
     
-            const command = await parseQueryWithGemini(query);
+            const command = await parseQueryWithLlama(query);
     
-            console.log("[Gemini Parsed Command]:", command);
+            console.log("[Llama Parsed Command]:", command);
     
     
     
@@ -428,7 +430,7 @@ app.post("/api/create-checkout-session", authenticateToken, async (req, res) => 
     console.log("Request body:", req.body);
     console.log("User ID:", req.user.id);
 
-    const { amount, items } = req.body;
+    const { amount, items, shippingFee, deliveryOption } = req.body;
 
     // Validate required environment variables
     if (!process.env.PAYMONGO_SECRET_KEY) {
@@ -475,6 +477,16 @@ app.post("/api/create-checkout-session", authenticateToken, async (req, res) => 
             name: item.name,
             quantity: item.quantity,
         }));
+
+        // Add shipping fee as a separate line item if delivery is shipping and fee > 0
+        if (deliveryOption === "shipping" && shippingFee > 0) {
+            line_items.push({
+                amount: Math.round(shippingFee * 100), // Convert to centavos
+                currency: "PHP",
+                name: "Shipping Fee",
+                quantity: 1,
+            });
+        }
 
         console.log("Creating PayMongo checkout session with items:", line_items);
         console.log("Total amount:", amount);
@@ -1088,7 +1100,7 @@ app.post("/api/registeruser", async (req, res) => {
     console.log("=== REGISTRATION REQUEST RECEIVED ===");
     console.log("Request body:", req.body);
     
-    const { name, email, password, phone, address, role } = req.body;
+    const { name, email, password, phone, role } = req.body; // Removed address
     
     // Enhanced validation with specific error messages
     const validationErrors = [];
@@ -1115,9 +1127,7 @@ app.post("/api/registeruser", async (req, res) => {
         validationErrors.push("Please provide a valid phone number");
     }
     
-    if (!address || address.trim().length < 10) {
-        validationErrors.push("Please provide a complete address");
-    }
+    // Removed address validation
     
     // Return validation errors if any
     if (validationErrors.length > 0) {
@@ -1153,12 +1163,11 @@ app.post("/api/registeruser", async (req, res) => {
         
         console.log("✅ Password hashed successfully");
         
-        // Prepare user data
+        // Prepare user data (removed address)
         const userData = {
             name: name.trim(),
             email: email.trim().toLowerCase(), // Normalize email
             phone: phone.trim(),
-            address: address.trim(),
             password: hashedPassword,
             role: role || "user"
         };
@@ -2202,6 +2211,76 @@ app.post('/api/items/:id/calculate-price', async (req, res) => {
     }
 });
 // ---- End Custom Price Endpoint ----
+
+
+app.get('/api/gemini/health-check', async (req, res) => {
+    console.log("🏥 Gemini Health Check Endpoint Called");
+    
+    try {
+        const healthResult = await checkGeminiHealth();
+        
+        res.json({
+            timestamp: new Date().toISOString(),
+            service: 'Gemini API',
+            ...healthResult
+        });
+        
+    } catch (error) {
+        console.log("💥 Health check endpoint error:", error);
+        res.status(500).json({
+            timestamp: new Date().toISOString(),
+            service: 'Gemini API',
+            status: 'ERROR',
+            error: error.message
+        });
+    }
+});
+
+// Quick health check endpoint
+app.get('/api/gemini/ping', async (req, res) => {
+    console.log("🏓 Gemini Ping Endpoint Called");
+    
+    try {
+        const isOnline = await quickGeminiCheck();
+        
+        if (isOnline) {
+            res.json({
+                status: 'SUCCESS',
+                message: 'Gemini API is responsive',
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.status(503).json({
+                status: 'FAILED',
+                message: 'Gemini API is not responding',
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+    } catch (error) {
+        res.status(500).json({
+            status: 'ERROR',
+            message: 'Health check failed',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+// Auto-run health check when server starts
+console.log("🚀 Running Gemini health check on server startup...");
+checkGeminiHealth()
+    .then(result => {
+        if (result.status === 'SUCCESS') {
+            console.log("✅ Server startup: Gemini API is ready!");
+        } else {
+            console.log("⚠️ Server startup: Gemini API issues detected");
+        }
+    })
+    .catch(error => {
+        console.log("❌ Server startup: Gemini health check failed:", error.message);
+    });
+
 
 // listen to server
 server.listen(process.env.PORT || 5001, () => { //3
