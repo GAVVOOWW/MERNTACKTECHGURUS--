@@ -1,22 +1,19 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai"; // Yes, we use the OpenAI library for this!
 
-// Initialize with your API key from the .env file
-const genAI = new GoogleGenerativeAI("AIzaSyD92NOj8lhNkPLIl58Aa2seqKd25CafQ3A");
+// Configure the client to point to Groq's servers
+const groq = new OpenAI({
+    apiKey: "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",
+    baseURL: 'https://api.groq.com/openai/v1', 
+});
 
 /**
- * Uses Gemini to parse a raw user query into a structured command.
+ * Uses Llama 3 via the Groq API to parse a raw user query.
  * @param {string} userInput The raw text from the user.
  * @returns {Promise<object>} A structured object for searching.
  */
-export async function parseQueryWithGemini(userInput) {
-    console.log("=== INTELLIGENT FURNITURE ASSISTANT STARTED ===");
-    console.log("📝 Customer Input:", userInput);
-    console.log("🔤 Input Type:", typeof userInput);
-    console.log("📏 Input Length:", userInput?.length || 0);
-
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    const prompt = `
+export async function parseQueryWithGroq(userInput) {
+    // The same professional prompt we designed works perfectly here.
+    const systemPrompt =  `
         You are an intelligent furniture shopping assistant for "Wawa Furniture," a Filipino e-commerce store. Your job is to understand what customers REALLY need based on their context, lifestyle, and furniture relationships. Think like a knowledgeable salesperson who understands furniture pairing, room design, and customer intent.
 
         ### Your Core Understanding:
@@ -141,86 +138,25 @@ export async function parseQueryWithGemini(userInput) {
         **Customer Query:** "${userInput}"
     `;
 
-    console.log("🚀 Sending request to Intelligent Furniture Assistant...");
-    console.log("📋 Prompt length:", prompt.length);
-
     try {
-        const startTime = Date.now();
-        
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-        
-        const endTime = Date.now();
-        console.log("⏱️ Assistant response time:", (endTime - startTime) + "ms");
-        
-        console.log("=== RAW ASSISTANT RESPONSE ===");
-        console.log("📄 Raw Response Text:");
-        console.log(text);
-        console.log("📏 Response Length:", text.length);
-        
-        // Clean the response
-        const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        console.log("=== CLEANED JSON STRING ===");
-        console.log("🧹 Cleaned JSON String:");
-        console.log(jsonString);
-        console.log("📏 Cleaned Length:", jsonString.length);
-        
-        // Parse the JSON
-        const parsedResult = JSON.parse(jsonString);
-        
-        console.log("=== ASSISTANT UNDERSTANDING ===");
-        console.log("✅ Successfully parsed JSON:");
-        console.log(JSON.stringify(parsedResult, null, 2));
-        
-        // Enhanced analysis for assistant understanding
-        console.log("=== INTELLIGENT ANALYSIS ===");
-        console.log("🔍 What Customer Really Needs:", parsedResult.semanticQuery);
-        console.log("🧠 Assistant's Understanding:", parsedResult.customerIntent || "Basic query processing");
-        console.log("🎯 Recommendation Type:", parsedResult.recommendationType || "general search");
-        console.log("🏠 Target Room:", parsedResult.targetRoom || "not specified");
-        console.log("📊 Limit:", parsedResult.limit || "default (12)");
-        console.log("🔄 Sort By:", parsedResult.sortBy || "relevance");
-        console.log("📈 Sort Order:", parsedResult.sortOrder || "default");
-        console.log("🎛️ Filters:", parsedResult.filters ? Object.keys(parsedResult.filters).length + " filters applied" : "no specific filters");
-        
-        if (parsedResult.filters && Object.keys(parsedResult.filters).length > 0) {
-            console.log("📋 Filter Details:");
-            Object.entries(parsedResult.filters).forEach(([key, value]) => {
-                console.log(`   • ${key}: ${JSON.stringify(value)}`);
-            });
-        }
-        
-        console.log("=== INTELLIGENT FURNITURE ASSISTANT COMPLETED SUCCESSFULLY ===");
-        return parsedResult;
-        
+        console.log("Sending query to Llama 3 on Groq...");
+        const response = await groq.chat.completions.create({
+            model: "llama3-8b-8192", // Use Llama 3 8B on Groq's fast servers
+            response_format: { type: "json_object" }, // Use reliable JSON Mode
+            messages: [
+                { "role": "system", "content": systemPrompt },
+                { "role": "user", "content": `Customer Query: "${userInput}"` }
+            ],
+            temperature: 0.1, // Keep the output focused and deterministic
+        });
+
+        console.log("Groq response received.");
+        const jsonResult = JSON.parse(response.choices[0].message.content);
+        return jsonResult;
+
     } catch (error) {
-        console.log("=== ASSISTANT ERROR ===");
-        console.error("❌ Error type:", error.name);
-        console.error("❌ Error message:", error.message);
-        console.error("❌ Full error:", error);
-        
-        if (error instanceof SyntaxError) {
-            console.error("🔧 JSON Parse Error - Invalid JSON returned by Assistant");
-            console.error("📄 Attempted to parse:", error.message);
-        } else if (error.code) {
-            console.error("🌐 API Error Code:", error.code);
-        }
-        
-        console.log("=== FALLBACK RESPONSE ===");
-        const fallbackResult = { 
-            semanticQuery: userInput, 
-            customerIntent: "Unable to fully understand request, using literal search",
-            recommendationType: "general",
-            filters: {}, 
-            limit: 12 
-        };
-        
-        console.log("🔄 Using fallback result:");
-        console.log(JSON.stringify(fallbackResult, null, 2));
-        console.log("=== INTELLIGENT ASSISTANT COMPLETED WITH FALLBACK ===");
-        
-        return fallbackResult;
+        console.error("Groq parsing error:", error);
+        // Fallback strategy remains the same
+        return { semanticQuery: userInput, filters: {}, limit: 12 };
     }
 }

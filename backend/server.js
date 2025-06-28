@@ -11,7 +11,8 @@ import bodyParser from 'body-parser';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { calculateCustomPrice } from "./utils/priceCalculator.js";
-import { checkGeminiHealth, quickGeminiCheck } from './utils/geminiHealthCheck.js'
+
+
 
 
 
@@ -38,8 +39,13 @@ dotenv.config(`./.env`);
 connectDB();
 
 import { pipeline } from '@xenova/transformers';
-import { parseQueryWithGemini } from './utils/geminiParser.js';
-import { parseQueryWithLlama } from './utils/llamaParser.js';
+import { parseQueryWithGroq } from './utils/groqParser.js';
+
+
+
+
+
+
 
 
 
@@ -176,9 +182,9 @@ app.post('/api/items/semantic-search', async (req, res) => {
     
     
     
-            const command = await parseQueryWithLlama(query);
+            const command = await parseQueryWithGroq(query);
     
-            console.log("[Llama Parsed Command]:", command);
+            console.log("[Groq Parsed Command]:", command);
     
     
     
@@ -423,90 +429,67 @@ io.on('connection', (socket) => {
 
 
 //PATMONGO API------------------------------------------------------------
-
-
 app.post("/api/create-checkout-session", authenticateToken, async (req, res) => {
     console.log("=== PAYMONGO CHECKOUT SESSION CREATION STARTED ===");
-    console.log("Request body:", req.body);
-    console.log("User ID:", req.user.id);
-
+    
+    // The amount and shippingFee now come directly from the frontend's calculation
     const { amount, items, shippingFee, deliveryOption } = req.body;
 
-    // Validate required environment variables
-    if (!process.env.PAYMONGO_SECRET_KEY) {
-        console.error("PAYMONGO_SECRET_KEY is not configured");
-        return res.status(500).json({
-            error: "Payment configuration error",
-            details: "Payment service not properly configured. Please contact support."
-        });
+    // --- Validation remains the same ---
+    if (!process.env.PAYMONGO_SECRET_KEY || !process.env.FRONTEND_URL) {
+        return res.status(500).json({ error: "Payment configuration error." });
     }
-
-    if (!process.env.FRONTEND_URL) {
-        console.error("FRONTEND_URL is not configured");
-        return res.status(500).json({
-            error: "Configuration error",
-            details: "Frontend URL not configured. Please contact support."
-        });
-    }
-
-    console.log("Environment variables check passed");
-
-    // Validate request data
     if (!items || !Array.isArray(items) || items.length === 0) {
-        console.log("ERROR: Invalid items data:", items);
-        return res.status(400).json({
-            error: "Invalid request",
-            details: "Items are required"
-        });
+        return res.status(400).json({ error: "Items are required." });
     }
-
     if (!amount || amount <= 0) {
-        console.log("ERROR: Invalid amount:", amount);
-        return res.status(400).json({
-            error: "Invalid request",
-            details: "Valid amount is required"
-        });
+        return res.status(400).json({ error: "Valid amount is required." });
     }
-
-    console.log("Request validation passed");
+    console.log("Request validation passed.");
 
     try {
+        // --- THIS IS THE CORRECTED LOGIC ---
+        // 1. Create line items from the products
         const line_items = items.map((item) => ({
-            amount: Math.round(item.price * 100), // Convert to centavos and ensure integer
+            amount: Math.round(item.price * 100), // Convert to centavos
             currency: "PHP",
             name: item.name,
             quantity: item.quantity,
         }));
 
-        // Add shipping fee as a separate line item if delivery is shipping and fee > 0
+        // 2. If there is a shipping fee, add it as its own line item
         if (deliveryOption === "shipping" && shippingFee > 0) {
             line_items.push({
-                amount: Math.round(shippingFee * 100), // Convert to centavos
+                amount: Math.round(shippingFee * 100),
                 currency: "PHP",
                 name: "Shipping Fee",
                 quantity: 1,
             });
         }
+        
+        // 3. The total amount for the checkout session should match the grandTotal from the frontend
+        const totalAmountInCentavos = Math.round(amount * 100);
 
-        console.log("Creating PayMongo checkout session with items:", line_items);
-        console.log("Total amount:", amount);
-        console.log("Success URL:", `${process.env.FRONTEND_URL}/checkout/success`);
-        console.log("Cancel URL:", `${process.env.FRONTEND_URL}/checkout/cancel`);
+        const checkoutData = {
+            data: {
+                attributes: {
+                    line_items,
+                    payment_method_types: ["gcash", "card"],
+                    success_url: `${process.env.FRONTEND_URL}/checkout/success`,
+                    cancel_url: `${process.env.FRONTEND_URL}/checkout/cancel`, // Corrected typo
+                    send_email_receipt: true,
+                    show_line_items: true,
+                    // The API expects the total amount to be here as well for some validations
+                    amount: totalAmountInCentavos, 
+                },
+            },
+        };
+
+        console.log("Creating PayMongo checkout session with data:", JSON.stringify(checkoutData, null, 2));
 
         const response = await axios.post(
             "https://api.paymongo.com/v1/checkout_sessions",
-            {
-                data: {
-                    attributes: {
-                        line_items,
-                        payment_method_types: ["gcash", "card"],
-                        success_url: `${process.env.FRONTEND_URL}/checkout/success`,
-                        cancel_url: `${process.env.FRONTEND_URL}/checkout/cancel`,
-                        send_email_receipt: true,
-                        show_line_items: true
-                    },
-                },
-            },
+            checkoutData,
             {
                 headers: {
                     "Content-Type": "application/json",
@@ -518,29 +501,14 @@ app.post("/api/create-checkout-session", authenticateToken, async (req, res) => 
         );
 
         console.log("=== PAYMONGO RESPONSE RECEIVED ===");
-        console.log("PayMongo response status:", response.status);
-        console.log("Checkout URL:", response.data.data.attributes.checkout_url);
-
-        res.json({
-            checkoutUrl: response.data.data.attributes.checkout_url,
-        });
+        res.json({ checkoutUrl: response.data.data.attributes.checkout_url });
 
     } catch (error) {
         console.log("=== PAYMONGO ERROR ===");
-        console.error("Paymongo error:", error.response?.data || error.message);
-        console.error("Full error:", error);
-        console.error("Error status:", error.response?.status);
-
-        if (error.response?.status === 401) {
-            return res.status(500).json({
-                error: "Payment configuration error",
-                details: "Invalid PayMongo credentials"
-            });
-        }
-
+        console.error("Paymongo error details:", error.response?.data?.errors || error.message);
         res.status(500).json({
             error: "Payment failed",
-            details: error.response?.data?.errors || error.message,
+            details: error.response?.data?.errors || "An unknown error occurred.",
         });
     }
 });
@@ -2213,73 +2181,6 @@ app.post('/api/items/:id/calculate-price', async (req, res) => {
 // ---- End Custom Price Endpoint ----
 
 
-app.get('/api/gemini/health-check', async (req, res) => {
-    console.log("🏥 Gemini Health Check Endpoint Called");
-    
-    try {
-        const healthResult = await checkGeminiHealth();
-        
-        res.json({
-            timestamp: new Date().toISOString(),
-            service: 'Gemini API',
-            ...healthResult
-        });
-        
-    } catch (error) {
-        console.log("💥 Health check endpoint error:", error);
-        res.status(500).json({
-            timestamp: new Date().toISOString(),
-            service: 'Gemini API',
-            status: 'ERROR',
-            error: error.message
-        });
-    }
-});
-
-// Quick health check endpoint
-app.get('/api/gemini/ping', async (req, res) => {
-    console.log("🏓 Gemini Ping Endpoint Called");
-    
-    try {
-        const isOnline = await quickGeminiCheck();
-        
-        if (isOnline) {
-            res.json({
-                status: 'SUCCESS',
-                message: 'Gemini API is responsive',
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            res.status(503).json({
-                status: 'FAILED',
-                message: 'Gemini API is not responding',
-                timestamp: new Date().toISOString()
-            });
-        }
-        
-    } catch (error) {
-        res.status(500).json({
-            status: 'ERROR',
-            message: 'Health check failed',
-            error: error.message,
-            timestamp: new Date().toISOString()
-        });
-    }
-});
-
-// Auto-run health check when server starts
-console.log("🚀 Running Gemini health check on server startup...");
-checkGeminiHealth()
-    .then(result => {
-        if (result.status === 'SUCCESS') {
-            console.log("✅ Server startup: Gemini API is ready!");
-        } else {
-            console.log("⚠️ Server startup: Gemini API issues detected");
-        }
-    })
-    .catch(error => {
-        console.log("❌ Server startup: Gemini health check failed:", error.message);
-    });
 
 
 // listen to server
